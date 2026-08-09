@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import get_config
-from src.data import SyntheticPairedData
+from src.data import SyntheticPairedData, make_flickr8k_features_dataloader
 from src.models import (
     ImageEncoder,
     TextEncoder,
@@ -267,6 +267,13 @@ def main() -> None:
         default="checkpoints/clip_model.pt",
         help="Path to save the model",
     )
+    parser_clip.add_argument(
+        "--dataset",
+        type=str,
+        choices=["synthetic", "flickr8k"],
+        default="synthetic",
+        help="Data source to train on",
+    )
 
     # train_teacher parser
     parser_teacher = subparsers.add_parser(
@@ -284,6 +291,13 @@ def main() -> None:
         type=str,
         default="checkpoints/ssd_teacher.pt",
         help="Path to save teacher checkpoint",
+    )
+    parser_teacher.add_argument(
+        "--dataset",
+        type=str,
+        choices=["synthetic", "flickr8k"],
+        default="synthetic",
+        help="Data source to train on",
     )
 
     # distill parser
@@ -315,6 +329,13 @@ def main() -> None:
         default="checkpoints/ssd_student_txt.pt",
         help="Path to save text student",
     )
+    parser_distill.add_argument(
+        "--dataset",
+        type=str,
+        choices=["synthetic", "flickr8k"],
+        default="synthetic",
+        help="Data source to distill on",
+    )
 
     # eval parser
     parser_eval = subparsers.add_parser("eval", help="Evaluate trained representations")
@@ -342,6 +363,20 @@ def main() -> None:
     )
     parser_eval.add_argument(
         "--batch_size", type=int, default=64, help="Evaluation batch size"
+    )
+    parser_eval.add_argument(
+        "--dataset",
+        type=str,
+        choices=["synthetic", "flickr8k"],
+        default="synthetic",
+        help="Data source to evaluate on",
+    )
+    parser_eval.add_argument(
+        "--split",
+        type=str,
+        choices=["train", "dev", "test"],
+        default="test",
+        help="Flickr8k split to evaluate (used when --dataset flickr8k)",
     )
     parser_eval.add_argument(
         "--seed", type=int, default=43, help="Seed for evaluation data generation"
@@ -382,10 +417,18 @@ def main() -> None:
             }
         )
         seed_everything(config["seed"])
-        dataset = SyntheticPairedData(
-            num_samples=config["num_samples"], seed=config["seed"]
-        )
-        dataloader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=True)
+        if args.dataset == "flickr8k":
+            config.update({"img_in_dim": 512, "txt_in_dim": 512})
+            dataloader = make_flickr8k_features_dataloader(
+                split="train", batch_size=config["batch_size"], shuffle=True
+            )
+        else:
+            dataset = SyntheticPairedData(
+                num_samples=config["num_samples"], seed=config["seed"]
+            )
+            dataloader = DataLoader(
+                dataset, batch_size=config["batch_size"], shuffle=True
+            )
 
         img_enc = ImageEncoder(
             input_dim=config["img_in_dim"],
@@ -416,10 +459,18 @@ def main() -> None:
             }
         )
         seed_everything(config["seed"])
-        dataset = SyntheticPairedData(
-            num_samples=config["num_samples"], seed=config["seed"]
-        )
-        dataloader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=True)
+        if args.dataset == "flickr8k":
+            config.update({"img_in_dim": 512, "txt_in_dim": 512})
+            dataloader = make_flickr8k_features_dataloader(
+                split="train", batch_size=config["batch_size"], shuffle=True
+            )
+        else:
+            dataset = SyntheticPairedData(
+                num_samples=config["num_samples"], seed=config["seed"]
+            )
+            dataloader = DataLoader(
+                dataset, batch_size=config["batch_size"], shuffle=True
+            )
 
         model = SSDTeacher(
             img_in_dim=config["img_in_dim"],
@@ -454,10 +505,17 @@ def main() -> None:
         )
 
         seed_everything(config["seed"])
-        dataset = SyntheticPairedData(
-            num_samples=config["num_samples"], seed=config["seed"]
-        )
-        dataloader = DataLoader(dataset, batch_size=config["batch_size"], shuffle=True)
+        if args.dataset == "flickr8k":
+            dataloader = make_flickr8k_features_dataloader(
+                split="train", batch_size=config["batch_size"], shuffle=True
+            )
+        else:
+            dataset = SyntheticPairedData(
+                num_samples=config["num_samples"], seed=config["seed"]
+            )
+            dataloader = DataLoader(
+                dataset, batch_size=config["batch_size"], shuffle=True
+            )
 
         teacher = SSDTeacher(
             img_in_dim=config["img_in_dim"],
@@ -499,10 +557,15 @@ def main() -> None:
         )
 
     elif args.command == "eval":
-        eval_dataset = SyntheticPairedData(num_samples=1000, seed=args.seed)
-        eval_dataloader = DataLoader(
-            eval_dataset, batch_size=args.batch_size, shuffle=False
-        )
+        if args.dataset == "flickr8k":
+            eval_dataloader = make_flickr8k_features_dataloader(
+                split=args.split, batch_size=args.batch_size, shuffle=False
+            )
+        else:
+            eval_dataset = SyntheticPairedData(num_samples=1000, seed=args.seed)
+            eval_dataloader = DataLoader(
+                eval_dataset, batch_size=args.batch_size, shuffle=False
+            )
 
         if args.model == "clip":
             if not args.checkpoint:
