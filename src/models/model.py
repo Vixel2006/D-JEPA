@@ -37,7 +37,9 @@ class RoPE(nnx.Module):
         *batch_dims, seq_len, d_model = x.shape
         chex.assert_equal(d_model, self.d_model)
         chex.assert_scalar_positive(seq_len)
-        assert seq_len <= self.max_seq_len, f"seq_len {seq_len} > max_seq_len {self.max_seq_len}"
+        assert (
+            seq_len <= self.max_seq_len
+        ), f"seq_len {seq_len} > max_seq_len {self.max_seq_len}"
 
         half_dim = self.d_model // 2
 
@@ -104,7 +106,9 @@ class SlotAttention(nnx.Module):
         mu = self.slots_mu.value
         log_sigma = self.slots_log_sigma.value
         sigma = jnp.exp(log_sigma)
-        slots = mu + sigma * jax.random.normal(self.rngs.params(), (batch_size, self.num_slots, self.d_slot))
+        slots = mu + sigma * jax.random.normal(
+            self.rngs.params(), (batch_size, self.num_slots, self.d_slot)
+        )
         return slots
 
     def __call__(self, x: jax.Array) -> jax.Array:
@@ -129,18 +133,20 @@ class SlotAttention(nnx.Module):
             q = self.q(slots)
             chex.assert_shape(q, (batch_size, self.num_slots, self.d_slot))
 
-            attn_logits = jnp.einsum('bnd,bmd->bnm', q, k) / jnp.sqrt(self.d_slot)
+            attn_logits = jnp.einsum("bnd,bmd->bnm", q, k) / jnp.sqrt(self.d_slot)
             chex.assert_shape(attn_logits, (batch_size, self.num_slots, seq_len))
 
             attn = jax.nn.softmax(attn_logits, axis=-1)
             chex.assert_shape(attn, (batch_size, self.num_slots, seq_len))
 
-            updates = jnp.einsum('bnm,bmd->bnd', attn, v)
+            updates = jnp.einsum("bnm,bmd->bnd", attn, v)
             chex.assert_shape(updates, (batch_size, self.num_slots, self.d_slot))
 
             updates = self.norm_mlp(updates)
 
-            slots = self.gru(slots_prev.reshape(-1, self.d_slot), updates.reshape(-1, self.d_slot))[0]
+            slots = self.gru(
+                slots_prev.reshape(-1, self.d_slot), updates.reshape(-1, self.d_slot)
+            )[0]
             slots = slots.reshape(batch_size, self.num_slots, self.d_slot)
             chex.assert_shape(slots, (batch_size, self.num_slots, self.d_slot))
 
@@ -150,4 +156,3 @@ class SlotAttention(nnx.Module):
             slots = slots + mlp_out
 
         return slots
-
