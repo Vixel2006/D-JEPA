@@ -149,3 +149,46 @@ class ViT(nnx.Module):
         x = self.head(x)
         chex.assert_shape(x, (batch_size, self.num_classes))
         return x
+
+    def encode(self, x: jax.Array) -> jax.Array:
+        """Encode image to latent representation (before classification head)."""
+        chex.assert_rank(x, 4)
+        batch_size, h, w, c = x.shape
+        chex.assert_equal(h, self.img_size)
+        chex.assert_equal(w, self.img_size)
+
+        x = self.patch_embed(x)
+        chex.assert_shape(
+            x,
+            (
+                batch_size,
+                self.img_size // self.patch_size,
+                self.img_size // self.patch_size,
+                self.d_model,
+            ),
+        )
+
+        x = x.reshape(batch_size, self.num_patches, self.d_model)
+        chex.assert_shape(x, (batch_size, self.num_patches, self.d_model))
+
+        cls_token = jnp.broadcast_to(
+            self.cls_token.value, (batch_size, 1, self.d_model)
+        )
+        x = jnp.concatenate([cls_token, x], axis=1)
+        chex.assert_shape(x, (batch_size, self.num_patches + 1, self.d_model))
+
+        seq_len = x.shape[1]
+        x = x + self.pos_embed.value[:, :seq_len]
+        chex.assert_shape(x, (batch_size, seq_len, self.d_model))
+
+        for block in self.blocks:
+            x = block(x)
+
+        if self.use_slots:
+            x = x.mean(axis=1)
+        else:
+            x = x[:, 0]
+
+        x = self.norm(x)
+        chex.assert_shape(x, (batch_size, self.d_model))
+        return x

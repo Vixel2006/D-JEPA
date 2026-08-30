@@ -1,0 +1,6 @@
+flax==0.8.4
+optax==0.2.3
+chex==0.1.87
+orbax-checkpoint==0.12.4
+tensorboard==2.17.0
+grain==0.2.18

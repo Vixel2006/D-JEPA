@@ -116,3 +116,36 @@ class BERT(nnx.Module):
         x = self.classifier(x)
         chex.assert_shape(x, (batch_size, self.num_classes))
         return x
+
+    def encode(
+        self, input_ids: jax.Array, attention_mask: jax.Array | None = None
+    ) -> jax.Array:
+        """Encode text to latent representation (before classification head)."""
+        chex.assert_rank(input_ids, 2)
+        batch_size, seq_len = input_ids.shape
+        assert (
+            seq_len <= self.max_seq_len
+        ), f"seq_len {seq_len} > max_seq_len {self.max_seq_len}"
+
+        if attention_mask is not None:
+            chex.assert_shape(attention_mask, (batch_size, seq_len))
+
+        x = self.token_embedding(input_ids)
+        chex.assert_shape(x, (batch_size, seq_len, self.d_model))
+
+        x = x + self.pos_embedding.value[:, :seq_len]
+        chex.assert_shape(x, (batch_size, seq_len, self.d_model))
+
+        for block in self.blocks:
+            x = block(x)
+
+        if self.use_slots:
+            x = x.mean(axis=1)
+            chex.assert_shape(x, (batch_size, self.d_model))
+        else:
+            x = x[:, 0]
+            chex.assert_shape(x, (batch_size, self.d_model))
+
+        x = self.norm(x)
+        chex.assert_shape(x, (batch_size, self.d_model))
+        return x
