@@ -1,25 +1,18 @@
-from .vit import ViTConfig, ViT
-from .bert import BERTConfig, BERT
-from .fusion import MultimodalFusionConfig, MultimodalFusion
-from .image_decoder import ImageDecoderConfig, ImageDecoder
-from .text_decoder import TextDecoderConfig, TextDecoder
-from .components import RoPE, MultiHeadAttention, TransformerBlock, SlotAttention
-from .multimodal_model import MultimodalModel
+"""Model definitions for LeJEPA and D-JEPA."""
+
+from .backbones import TextEncoderBERT, VisionEncoderDINO
+from .decomposed import DecomposedLeJEPA, build_decomposed_model
+from .lejepa import LeJEPA, build_lejepa_model
+from .projectors import LeJEPAProjector, SynergyHead, make_predictor
 
 __all__ = [
-    "ViTConfig",
-    "BERTConfig",
-    "MultimodalFusionConfig",
-    "ImageDecoderConfig",
-    "TextDecoderConfig",
-    "ViT",
-    "BERT",
-    "MultimodalFusion",
-    "ImageDecoder",
-    "TextDecoder",
-    "RoPE",
-    "MultiHeadAttention",
-    "TransformerBlock",
-    "SlotAttention",
-    "MultimodalModel",
+    "DecomposedLeJEPA",
+    "LeJEPAProjector",
+    "LeJEPA",
+    "SynergyHead",
+    "TextEncoderBERT",
+    "VisionEncoderDINO",
+    "build_decomposed_model",
+    "build_lejepa_model",
+    "make_predictor",
 ]

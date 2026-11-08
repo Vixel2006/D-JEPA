@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pidjepa"
+version = "0.2.0"
+description = "D-JEPA CLEVR benchmark with publication-grade diagnostics"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "numpy>=1.24",
+    "pillow>=10.0",
+    "matplotlib>=3.7",
+    "transformers>=4.40",
+    "datasets>=2.18",
+]
+
+[project.optional-dependencies]
+figures = [
+    "seaborn>=0.12",
+    "scikit-learn>=1.3",
+]
+dev = ["pytest>=8", "ruff>=0.5"]
+
+[project.scripts]
+djepa-clevr = "djepa.cli:main"
+pidjepa = "djepa.cli:main"
+
+[tool.setuptools]
+package-dir = {djepa = "src"}
+packages = [
+    "djepa",
+    "djepa.data",
+    "djepa.evaluation",
+    "djepa.figures",
+    "djepa.models",
+    "djepa.training",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,6 +1,10 @@
-flax==0.8.4
-optax==0.2.3
-chex==0.1.87
-orbax-checkpoint==0.12.4
-tensorboard==2.17.0
-grain==0.2.18
+torch>=2.0
+torchvision>=0.15
+numpy>=1.24
+pillow>=10.0
+transformers>=4.40
+datasets>=2.18
+# Figure suite (optional for training, required for --figures)
+matplotlib>=3.7
+seaborn>=0.12
+scikit-learn>=1.3

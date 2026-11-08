@@ -1,11 +1,5 @@
-from .train_config import TrainConfig
-from .trainer import Trainer, train_step, eval_step
-from .optimizer import create_optimizer
+"""Training loops for pretraining and downstream probes."""
 
-__all__ = [
-    "TrainConfig",
-    "Trainer",
-    "train_step",
-    "eval_step",
-    "create_optimizer",
-]
+from .pretrain import pretrain_models
+
+__all__ = ["pretrain_models"]

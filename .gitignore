@@ -1,2 +1,10 @@
 __pycache__/
 .venv/
+.pytest_cache/
+.ruff_cache/
+outputs/
+logs/
+*.log
+/data/
+*.egg-info/
+drafts/
