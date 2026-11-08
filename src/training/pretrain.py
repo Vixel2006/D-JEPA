@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Sequence
 
 import torch
 import torch.nn.functional as F
@@ -41,14 +40,10 @@ def _forward_vision_single(model: nn.Module, image: torch.Tensor):
     return component, unique, hidden
 
 
-def _forward_text_single(
-    model: nn.Module, ids: torch.Tensor, mask: torch.Tensor
-):
+def _forward_text_single(model: nn.Module, ids: torch.Tensor, mask: torch.Tensor):
     if hasattr(model, "forward_text_single"):
         return model.forward_text_single(ids, mask)
-    (component, unique), _, (hidden, _) = model.forward_text(
-        ids, mask, ids, mask
-    )
+    (component, unique), _, (hidden, _) = model.forward_text(ids, mask, ids, mask)
     return component, unique, hidden
 
 
@@ -107,12 +102,8 @@ def pretrain_models(
             # -------------------------------------------------------------
             # 1. LeJEPA baseline: one shared latent for both modalities.
             # -------------------------------------------------------------
-            lejepa_vision1, lejepa_vision2 = lejepa.forward_vision(
-                view1, view2
-            )
-            lejepa_text = _forward_text_clean(
-                lejepa, question_ids, question_mask
-            )
+            lejepa_vision1, lejepa_vision2 = lejepa.forward_vision(view1, view2)
+            lejepa_text = _forward_text_clean(lejepa, question_ids, question_mask)
 
             loss_pv, _, _ = lejepa_loss(
                 lejepa_vision1,
@@ -132,9 +123,13 @@ def pretrain_models(
             # -------------------------------------------------------------
             # 2. D-JEPA shared components.
             # -------------------------------------------------------------
-            (vision_c1, vision_u1), (vision_c2, vision_u2), (
-                vision_hidden1,
-                _,
+            (
+                (vision_c1, vision_u1),
+                (vision_c2, vision_u2),
+                (
+                    vision_hidden1,
+                    _,
+                ),
             ) = decomposed.forward_vision(view1, view2)
             text_c, text_u, text_hidden = _forward_text_single(
                 decomposed, question_ids, question_mask
@@ -150,8 +145,7 @@ def pretrain_models(
                 text_c, num_slices=optim_config.sigreg_slices
             )
             loss_dcross = 0.5 * (
-                F.mse_loss(vision_c1, text_c)
-                + F.mse_loss(vision_c2, text_c)
+                F.mse_loss(vision_c1, text_c) + F.mse_loss(vision_c2, text_c)
             )
             loss_dc = loss_dvc + loss_dtc + loss_dcross
 
@@ -169,15 +163,11 @@ def pretrain_models(
                 patch_size=data_config.patch_size,
                 drop_ratio=data_config.patch_drop_ratio,
             )
-            masked_cv, masked_uv, _ = _forward_vision_single(
-                decomposed, masked_view1
-            )
+            masked_cv, masked_uv, _ = _forward_vision_single(decomposed, masked_view1)
             predicted_vision_hidden = decomposed.vision_predictor(
                 torch.cat([masked_cv, masked_uv], dim=-1)
             )
-            loss_duv_info = F.mse_loss(
-                predicted_vision_hidden, vision_hidden1.detach()
-            )
+            loss_duv_info = F.mse_loss(predicted_vision_hidden, vision_hidden1.detach())
 
             # ``masked_ids1`` already contains the 15% token masking applied
             # by the dataset, matching the reference implementation.
@@ -187,9 +177,7 @@ def pretrain_models(
             predicted_text_hidden = decomposed.text_predictor(
                 torch.cat([masked_ct, masked_ut], dim=-1)
             )
-            loss_dut_info = F.mse_loss(
-                predicted_text_hidden, text_hidden.detach()
-            )
+            loss_dut_info = F.mse_loss(predicted_text_hidden, text_hidden.detach())
 
             # -------------------------------------------------------------
             # 5. Synergy regulariser (the head is evaluated separately).

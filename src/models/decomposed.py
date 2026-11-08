@@ -1,5 +1,3 @@
-"""D-JEPA: shared components, private fibres, and a synergy head."""
-
 from __future__ import annotations
 
 import torch
@@ -108,9 +106,7 @@ class DecomposedLeJEPA(nn.Module):
         centered_vision = vision_components - vision_components.mean(
             dim=0, keepdim=True
         )
-        centered_text = text_components - text_components.mean(
-            dim=0, keepdim=True
-        )
+        centered_text = text_components - text_components.mean(dim=0, keepdim=True)
         return self.fusion(torch.cat([centered_vision, centered_text], dim=-1))
 
     @torch.no_grad()
