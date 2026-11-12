@@ -1,10 +1,31 @@
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Environments and tooling
 .venv/
+venv/
 .pytest_cache/
 .ruff_cache/
-outputs/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Benchmark outputs and local data
 logs/
 *.log
 /data/
-*.egg-info/
-drafts/
+/results*/
+/outputs/
+*.tar.gz
+
+# Paper drafts and unrelated local documents
+/drafts/
+*.pdf
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/

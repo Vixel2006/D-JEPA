@@ -2,12 +2,12 @@
 # Run the current working tree on a fresh Colab VM and pull the outputs back.
 #
 # Usage:
-#   scripts/colab_run.sh --dataset procedural --scenes 20 --pretrain-steps 2 \
-#       --probe-steps 2 --seeds 42 --device cuda
+#   scripts/colab_run.sh --mode synthetic --quick --device cpu
+#   scripts/colab_run.sh --mode clevr --seeds 3 --pretrain-steps 3000
 #
 # Environment overrides:
 #   SESSION=name       Colab session name (default: pidjepa-<timestamp>)
-#   GPU=T4|L4|A100     Accelerator (default: T4; set GPU="" for CPU)
+#   GPU=T4|L4|A100      Accelerator (default: T4; set GPU="" for CPU)
 #   TIMEOUT=seconds    Remote execution timeout (default: 7200)
 #   KEEP=1             Leave the VM running after the run (debugging)
 set -euo pipefail
@@ -17,7 +17,7 @@ SESSION="${SESSION:-pidjepa-$(date +%s)}"
 GPU="${GPU:-T4}"
 TIMEOUT="${TIMEOUT:-7200}"
 KEEP="${KEEP:-0}"
-DJEPA_ARGS="$*"
+PIDJEPA_ARGS="$*"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 ARCHIVE="$(mktemp -t pidjepa_src.XXXXXX.tar.gz)"
 LOCAL_OUTPUT="$ROOT/outputs/colab_${STAMP}.tar.gz"
@@ -33,16 +33,17 @@ trap cleanup EXIT
 echo "[colab-run] packing working tree..."
 # Only exclude caches and VCS metadata. Do NOT exclude bare names such as
 # "data": tar matches those at every depth, which would silently drop
-# src/data and break the editable install.
+# src/pidjepa/data.py.
 tar -czf "$ARCHIVE" \
   -C "$ROOT" \
   --exclude='*/__pycache__' \
   --exclude='*/__pycache__/*' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
+  --exclude='*.egg-info' \
   --exclude='.venv' \
   --exclude='.git' \
-  src pyproject.toml README.md requirements.txt train_clevr.py tests scripts
+  src pyproject.toml README.md requirements.txt scripts
 
 echo "[colab-run] creating session '$SESSION'..."
 if [[ -n "$GPU" ]]; then
@@ -69,37 +70,25 @@ with tarfile.open("/content/pidjepa_src.tar.gz") as archive:
     except TypeError:  # Python < 3.12
         archive.extractall(repo)
 
-required = [
-    "pyproject.toml",
-    "src/__init__.py",
-    "src/data/__init__.py",
-    "src/evaluation/__init__.py",
-    "src/figures/__init__.py",
-]
+required = ["src/pidjepa/cli.py", "src/pidjepa/models.py", "scripts/colab_remote.py"]
 missing = [path for path in required if not os.path.exists(os.path.join(repo, path))]
 if missing:
     raise SystemExit(f"source archive is incomplete, missing: {missing}")
 
 subprocess.check_call(
     [sys.executable, "-m", "pip", "install", "-q",
-     "matplotlib", "transformers", "datasets", "seaborn", "scikit-learn"]
+     "seaborn", "scikit-learn", "transformers", "datasets"]
 )
-install = subprocess.run(
-    [sys.executable, "-m", "pip", "install", "-v", "--no-deps", "-e", repo],
-    capture_output=True,
-    text=True,
+subprocess.check_call(
+    [sys.executable, "-m", "pip", "install", "-q", "--no-deps", repo]
 )
-if install.returncode != 0:
-    print(install.stdout[-8000:], flush=True)
-    print("--- stderr ---", install.stderr[-8000:], flush=True)
-    raise SystemExit(f"editable install failed with exit code {install.returncode}")
 print("[colab] install complete")
 PY
 
-echo "[colab-run] running benchmark: $DJEPA_ARGS"
+echo "[colab-run] running benchmark: $PIDJEPA_ARGS"
 set +e
 colab exec -s "$SESSION" --timeout "$TIMEOUT" \
-  --env "DJEPA_ARGS=$DJEPA_ARGS" \
+  --env "PIDJEPA_ARGS=$PIDJEPA_ARGS" \
   -f "$ROOT/scripts/colab_remote.py"
 RUN_STATUS=$?
 set -e

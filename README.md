@@ -1,27 +1,32 @@
-# PID-JEPA / D-JEPA CLEVR
+# PID-JEPA
 
-A modular CLEVR benchmark for **LeJEPA** vs. **Decomposed LeJEPA
-(D-JEPA)**. It runs on the real Blender-rendered CLEVR split (streamed from
-Hugging Face) or on an offline procedural fallback, and produces the
-multi-seed tables plus a full publication figure suite.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
-## What the pipeline does
+Partial-information decomposition of multimodal joint-embedding pretraining.
+The benchmark compares **D-JEPA** against **alignment-only** representations on
+a synthetic ground-truth dataset and on real CLEVR.
 
-1. **Data** — real CLEVR questions from
-   `HuggingFaceM4/the_cauldron` (`clevr` configuration), or a deterministic
-   procedural scene generator. Questions are grouped into `counting`,
-   `attribute`, and `spatial_relation`.
-2. **Backbones** — frozen DINOv2 ViT-S/14 vision encoder (ResNet-18 fallback)
-   and frozen DistilBERT text encoder.
-3. **Pretraining** — LeJEPA (one shared latent) and D-JEPA (shared
-   code `c`, private fibres `u1`, `u2`, and synergy `s`).
-4. **Multi-seed probing** — capacity-matched probes for every subspace,
-   including `+u1`, `+u2`, `+u1+u2`, full, projected-capacity controls, and a
-   random-feature control.
-5. **Diagnostics** — causal fibre swaps, Procrustes alignment, Flow-PID,
-   covariance eigenspectra, effective rank, linear CKA, calibration (ECE /
-   NLL / macro-F1), and confusion matrices.
-6. **Figures** — 13 publication-ready PNG and PDF figures.
+The code is deliberately small: one module per concern, a single CLI, and a
+`report.json` schema that can regenerate most figures without retraining.
+
+## What it does
+
+1. **Data** — a synthetic multimodal bundle with known shared,
+   vision-private, text-private, and synergistic factors, or real CLEVR from
+   `HuggingFaceM4/the_cauldron` encoded with frozen DINOv2 and BERT towers.
+2. **Arms** — `alignment`, `alignment_rec`, `djepa`, `djepa_noindep`,
+   `djepa_norec`, plus a `raw` frozen-backbone baseline. D-JEPA splits each
+   stream's embedding into a shared code `c` and a private fibre `u`.
+3. **Pretraining** — invariance, cross-modal alignment, SIGReg
+   (sliced Epps–Pulley) anti-collapse, and optional reconstruction and
+   independence penalties.
+4. **Evaluation** — capacity-matched probes per subspace, paired-bootstrap
+   differences, modality-gap analysis, collapse diagnostics, ridge factor
+   identification, Procrustes/CKA/mutual-kNN alignment, causal block swaps,
+   and two PID estimators (probe-PID for discrete tasks, flow-PID for
+   continuous targets).
+5. **Figures** — seven publication figures written next to `report.json`.
 
 ## Install
 
@@ -32,195 +37,165 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-The first run downloads DINOv2 through `torch.hub` (retried once) and
-DistilBERT through `transformers`; real CLEVR is streamed from the Hugging
-Face Hub. If the `torch.hub` load fails, the vision tower tries Hugging Face
-`facebook/dinov2-small`, then falls back to a frozen ImageNet ResNet-18. If
-the real CLEVR stream fails and `--no-fallback` is not set, the procedural
-generator is used instead.
+For development and tests:
+
+```bash
+pip install -e ".[dev]"
+```
 
 ## Run
 
-Real CLEVR (matches the reference script):
-
 ```bash
-python -m djepa \
-  --dataset clevr \
-  --max-samples 10000 \
-  --output-dir outputs/clevr \
-  --seeds 42,43,44
+# Synthetic benchmark (fast, with ground-truth PID checks)
+pidjepa --mode synthetic --seeds 3 --output-dir results_synth
+
+# CLEVR (downloads DINOv2, BERT, and the Cauldron stream)
+pidjepa --mode clevr --seeds 3 --output-dir results_clevr
+
+# Smoke test
+pidjepa --mode synthetic --quick
 ```
 
-Offline / procedural:
+`pidjepa` and `python -m pidjepa` are equivalent.
 
-```bash
-python -m djepa \
-  --dataset procedural \
-  --scenes 1500 \
-  --output-dir outputs/clevr_procedural
-```
+### CLI reference
 
-Quick smoke run:
-
-```bash
-python -m djepa \
-  --dataset procedural \
-  --scenes 20 \
-  --batch-size 8 \
-  --test-size 8 \
-  --pretrain-steps 2 \
-  --probe-steps 2 \
-  --seeds 42 \
-  --device cpu \
-  --no-amp
-```
-
-Useful options:
+All defaults are the values used for the paper.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `--dataset` | `clevr` | `clevr` (Hub) or `procedural` (offline) |
-| `--max-samples` | `10000` | Maximum streamed real CLEVR items |
-| `--scenes` | `1500` | Procedural scenes |
-| `--batch-size` | `64` | Pretraining and probe batch size |
-| `--test-size` | auto | Default is `min(800, len(dataset) // 4)` |
-| `--max-question-length` | `64` | Tokenizer maximum length |
-| `--aug-scale-min` | `0.7` | Minimum `RandomResizedCrop` scale |
-| `--pretrain-steps` | `3000` | Joint pretraining steps |
-| `--probe-steps` | `600` | Probe steps per seed |
-| `--log-every` | `50` | Log training/probe progress every N steps |
-| `--seeds` | `42,43,44` | Evaluation seeds |
-| `--device` | `auto` | `cpu`, `cuda`, `cuda:0`, or `auto` |
-| `--no-figures` | off | Skip the figure suite |
-| `--no-pdf` | off | Write PNG figures only |
-| `--no-diagnostics` | off | Skip spectral/CKA/calibration analysis |
-| `--no-amp` | off | Disable CUDA mixed precision |
-| `--no-case-studies` | off | Skip qualitative win/loss search |
-| `--no-save` | off | Print tables without writing files |
-| `--num-workers` | `0` | Keep `0` for bitwise reproducibility |
+| `--mode` | `clevr` | `synthetic` or `clevr` |
+| `--seeds` | `3` | Number of seeds (42, 43, ...) |
+| `--pretrain-steps` | `3000` | Pretraining steps per arm |
+| `--batch-size` | `256` | Pretraining batch size |
+| `--block-dim` | `64` | Dimensions per shared/private block |
+| `--hidden-dim` | `512` | MLP and encoder hidden width |
+| `--transformer-dim` | `256` | Token-encoder model width |
+| `--transformer-layers` | `2` | Token-encoder layers |
+| `--attention-heads` | `4` | Token-encoder attention heads |
+| `--learning-rate` | `1e-3` | AdamW learning rate |
+| `--sigreg-weight` | `0.05` | SIGReg loss weight |
+| `--invariance-weight` | `1.0` | Augmentation-invariance weight |
+| `--cross-modal-weight` | `1.0` | Cross-modal alignment weight |
+| `--reconstruction-weight` | `1.0` | Reconstruction weight |
+| `--independence-weight` | `0.2` | Shared/private independence weight |
+| `--sigreg-slices` | `256` | Random slices in SIGReg |
+| `--views` | `3` | Augmented views per sample (minimum 3) |
+| `--synthetic-samples` | `12000` | Synthetic sample count |
+| `--probe-epochs` | `60` | Maximum probe epochs |
+| `--pid-dim` | `64` | Whitened dimensions per flow-PID source |
+| `--pid-steps` | `400` | Flow-PID training steps |
+| `--no-flow-pid` | off | Skip flow-PID (saves time) |
+| `--clevr-images` | `3000` | CLEVR images to stream |
+| `--questions-per-image` | `6` | QA pairs per image |
+| `--vision-grid` | `4` | DINOv2 patch pooling grid |
+| `--max-answer-classes` | `40` | Answer vocabulary size |
+| `--max-text-length` | `32` | BERT token length |
+| `--output-dir` | `results` | Output directory |
+| `--device` | auto | `cpu` or `cuda` |
+| `--quick` | off | Tiny fast run |
 
 ## Outputs
 
 ```text
-outputs/clevr/
-  results.json            aggregated metrics, diagnostics, loss history
-  accuracy.csv            per-subspace, per-category mean/std
-  pid.csv                 Flow-PID rows
-  diagnostics.json        spectral, CKA, alignment, calibration
-  spectral.csv            effective rank and covariance geometry
-  calibration.csv         accuracy, macro-F1, ECE, NLL
-  test_records.json       every held-out prediction record
-  embeddings.npz          held-out embeddings (z1, z2, c1, c2, u1, u2, s)
-  case_studies/           clevr_fig_*.jpg win/loss images
-  figures/
-    fig01_probe_accuracy_heatmap.{png,pdf}
-    fig02_per_category_bars.{png,pdf}
-    fig03_fiber_contribution.{png,pdf}
-    fig04_tsne_category_separation.{png,pdf}
-    fig05_prediction_distribution.{png,pdf}
-    fig06_qualitative_grid.{png,pdf}
-    fig07_spectral_diagnostics.{png,pdf}
-    fig08_cka_matrix.{png,pdf}
-    fig09_causal_swap.{png,pdf}
-    fig10_pid_decomposition.{png,pdf}
-    fig11_training_curves.{png,pdf}
-    fig12_calibration_confusion.{png,pdf}
-    fig13_alignment_summary.{png,pdf}
+results/
+  report.json                          aggregated metrics (accuracy, PID, alignment, ...)
+  fig1_per_category_bars.png           per-question-type accuracy (CLEVR)
+  fig2_modality_gap.png                joint - max(single-stream) synergy
+  fig3_factor_dissection_heatmap.png   subspaces -> factors (R^2)
+  fig4_probe_block_attribution.png     downstream probe weight per D-JEPA block
+  fig5_tsne_latent_dissection.png      t-SNE of c/u blocks
+  fig6_probe_pid.png                   probe-PID information allocation
+  fig7_flow_pid.png                    flow-PID information allocation
 ```
 
-### Figure guide
-
-- **01 accuracy heatmap** — per-category accuracy for every probe condition.
-- **02 per-category bars** — same numbers with seed error bars.
-- **03 fibre contribution** — Δ accuracy from adding `u1`, `u2`, `s`.
-- **04 t-SNE** — shared code vs. shared + private fibres (PCA fallback when
-  scikit-learn is unavailable).
-- **05 prediction distribution** — LeJEPA mode collapse vs. D-JEPA.
-- **06 qualitative grid** — wins and failure modes per category.
-- **07 spectral diagnostics** — eigenspectrum decay and effective rank.
-- **08 CKA matrix** — linear CKA between all representation codes.
-- **09 causal swap** — prediction flip rates for `u1`, `u2`, and `s`.
-- **10 PID decomposition** — stacked unique/redundant/synergy R² terms.
-- **11 training curves** — total losses and the D-JEPA loss decomposition.
-- **12 calibration & confusion** — ECE by condition and confusion matrices.
-- **13 alignment summary** — centered cosine between code pairs.
-
-## Run on Google Colab
-
-`scripts/colab_run.sh` packs the current working tree, creates a fresh
-`colab-cli` session, installs dependencies, runs the benchmark, downloads the
-outputs, and stops the VM:
+Figures 2, 3, 6, and 7 are pure functions of `report.json` and can be
+regenerated without retraining:
 
 ```bash
-# Tiny end-to-end smoke run (real CLEVR stream, T4 GPU)
-scripts/colab_run.sh \
-  --dataset clevr --max-samples 40 \
-  --batch-size 8 --test-size 8 \
-  --pretrain-steps 2 --probe-steps 2 \
-  --seeds 42 --device cuda
-
-# Full paper run
-GPU=A100 TIMEOUT=14400 scripts/colab_run.sh \
-  --dataset clevr --max-samples 10000 \
-  --output-dir outputs/clevr \
-  --seeds 42,43,44
+python scripts/regen_figures.py results/report.json
 ```
 
-Environment overrides: `SESSION` (session name), `GPU` (`T4`, `L4`, `A100`,
-or empty for CPU), `TIMEOUT` (remote timeout), and `KEEP=1` to keep the VM
-alive for debugging. Training, probing, inference, PID, and figure progress are
-streamed live to the Colab cell (with elapsed time and ETA), and the same
-transcript is saved to `outputs/run.log` inside the downloaded archive. The
-archive lands in `outputs/colab_<timestamp>.tar.gz` and contains the full
-`outputs/` tree. On failure the runner prints the log tail again, preserves the
-nonzero exit code, and still downloads any partial outputs.
+## Example figures
 
-Use `--log-every N` to control pretraining/probe progress frequency (for
-example `--log-every 10`).
+| Factor dissection | Modality gap |
+| --- | --- |
+| ![Factor dissection](assets/fig3_factor_dissection_heatmap.png) | ![Modality gap](assets/fig2_modality_gap.png) |
+
+| Probe-PID | Flow-PID |
+| --- | --- |
+| ![Probe PID](assets/fig6_probe_pid.png) | ![Flow PID](assets/fig7_flow_pid.png) |
 
 ## Package layout
 
 ```text
-src/                        installed as the `djepa` package
-  config.py                 typed data/model/optimisation/figure/run configs
-  cli.py                    argparse entry point
-  pipeline.py               end-to-end orchestration
-  diagnostics.py            spectra, effective rank, CKA, calibration
-  reporting.py              console tables, JSON/CSV/NPZ artefacts
-  results.py                typed result containers
-  augment.py                image-patch and token masking
-  losses.py                 SIGReg, LeJEPA, covariance decorrelation
-  data/
-    clevr.py                real CLEVR streaming, procedural fallback
-  evaluation/
-    probes.py               capacity-matched/ projected probes, causal swaps
-    features.py             single held-out feature pass
-    alignment.py            Procrustes alignment
-    kernels.py              degree-2 kernel ridge R²
-    pid.py                  Flow-PID decomposition
-    case_studies.py         qualitative win/loss extraction
-  figures/
-    paper.py                13-figure publication suite
-  models/
-    backbones.py            frozen DINOv2 and DistilBERT
-    projectors.py           projectors, predictor, synergy head
-    lejepa.py               LeJEPA baseline
-    decomposed.py           D-JEPA
-  training/
-    pretrain.py             joint pretraining objective + loss history
-  utils.py                  seeding, device, AMP, cycle helpers
+src/pidjepa/
+  __init__.py     package metadata
+  __main__.py     python -m pidjepa
+  cli.py          argument parsing and the seed loop
+  utils.py        seeding, formatting, and JSON helpers
+  models.py       SIGReg, encoders, shared/private split, arm registry
+  data.py         Bundle, synthetic generator, CLEVR loader
+  training.py     pretraining objective and feature extraction
+  evaluation.py   probes, metrics, PID estimators, per-seed experiment
+  reporting.py    cross-seed aggregation and console tables
+  figures.py      publication figure suite
+scripts/
+  colab_run.sh    end-to-end Colab runner (colab-cli)
+  colab_remote.py remote entry point used by colab_run.sh
+  regen_figures.py report-only figure regeneration
+tests/
+  test_pipeline.py fast synthetic-pipeline regression tests
 ```
 
 ## Reproducibility notes
 
-- The default seeds, step counts, augmentation scale, and answer vocabulary
-  match the reference script.
-- `--num-workers 0` is required for bitwise reproducibility because the
-  dataset consumes the global PyTorch RNG when generating masked views.
-- The test split is item-level, exactly as in the reference script. Scenes can
-  therefore appear in both train and test; this is preserved for comparability
-  and should be changed before using the benchmark for new claims.
-- The `RANDOM-*` probe uses a fresh Gaussian vector per batch, matching the
-  reference random-feature control.
-- Figure generation is defensive: an optional dependency or a degenerate
-  small-sample run cannot invalidate an otherwise successful benchmark.
+- Every arm shares the seed protocol (`set_seed` before each arm), the same
+  optimizer and schedule, and capacity-matched probes.
+- The CLEVR split is grouped by image so no scene leaks between train and
+  test; the synthetic split is by sample.
+- `report.json` stores every aggregate (accuracy, PID, alignment, swaps), so
+  tables can be regenerated without retraining.
+- The synthetic data generator and all evaluation code are deterministic
+  given the seed.
+
+## Development
+
+```bash
+ruff check src scripts tests
+ruff format --check src scripts tests
+pytest
+```
+
+## Run on Google Colab
+
+`scripts/colab_run.sh` packs the working tree, creates a fresh `colab-cli`
+session, installs dependencies, runs `python -m pidjepa`, downloads the
+outputs, and stops the VM:
+
+```bash
+# Quick synthetic verification
+GPU=T4 scripts/colab_run.sh --mode synthetic --quick --no-flow-pid
+
+# Full CLEVR paper run
+GPU=A100 TIMEOUT=14400 scripts/colab_run.sh --mode clevr --seeds 3
+```
+
+Environment overrides: `SESSION` (session name), `GPU` (`T4`, `L4`, `A100`,
+or empty for CPU), `TIMEOUT` (remote timeout), and `KEEP=1` to keep the VM
+alive for debugging. The archive lands in `outputs/colab_<timestamp>.tar.gz`
+and contains the full results tree plus `run.log`.
+
+## Citation
+
+Citation metadata is provided in [`CITATION.cff`](CITATION.cff). Update the
+author list and repository URL before publishing a paper release.
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+## Acknowledgements
+
+This benchmark builds on DINOv2, BERT, CLEVR, the Cauldron dataset, and the
+SIGReg objective from the LeJEPA line of work.

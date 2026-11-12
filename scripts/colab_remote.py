@@ -1,9 +1,10 @@
 """Remote entry point used by ``scripts/colab_run.sh``.
 
 Assumes the repository has been unpacked at ``/content/pidjepa`` and the
-package has already been installed.  Forwards ``DJEPA_ARGS`` to the CLI and
-streams its output live to the Colab cell while also writing it to a log, then
-tars the output directory for download.
+dependencies have already been installed.  Forwards ``PIDJEPA_ARGS`` to
+``python -m pidjepa`` (installed from ``src/``) and streams its output
+live to the Colab cell while also writing it to a log, then tars the output
+directory for download.
 
 On failure the log tail is echoed again, so ``colab exec`` surfaces real
 errors instead of only a CalledProcessError.
@@ -25,7 +26,7 @@ LOG_PATH = "/content/pidjepa_run.log"
 def _tail(path: str, limit: int) -> str:
     if not os.path.exists(path):
         return ""
-    with open(path, "r", errors="replace") as handle:
+    with open(path, errors="replace") as handle:
         text = handle.read()
     if len(text) <= limit:
         return text
@@ -33,7 +34,7 @@ def _tail(path: str, limit: int) -> str:
 
 
 def _archive_outputs() -> None:
-    output_dir = os.path.join(REPO, "outputs")
+    output_dir = os.path.join(REPO, "results")
     os.makedirs(output_dir, exist_ok=True)
     if os.path.exists(LOG_PATH):
         try:
@@ -43,7 +44,7 @@ def _archive_outputs() -> None:
         except OSError as exc:  # pragma: no cover - filesystem dependent
             print(f"[colab] could not copy log: {exc}", flush=True)
     with tarfile.open(OUTPUT_ARCHIVE, "w:gz") as archive:
-        archive.add(output_dir, arcname="outputs")
+        archive.add(output_dir, arcname="results")
     print(f"[colab] wrote {OUTPUT_ARCHIVE}", flush=True)
 
 
@@ -72,20 +73,18 @@ def _stream(command: list[str]) -> int:
 
 
 def main() -> int:
-    arguments = shlex.split(os.environ.get("DJEPA_ARGS", ""))
-    command = [sys.executable, "-u", "-m", "djepa", *arguments]
+    arguments = shlex.split(os.environ.get("PIDJEPA_ARGS", ""))
+    command = [sys.executable, "-u", "-m", "pidjepa", *arguments]
     print("[colab] running:", " ".join(command), flush=True)
 
     returncode = _stream(command)
 
-    print(f"[colab] exit code: {returncode}", flush=True)
     if returncode != 0:
-        print("[colab] --- failure log tail ---", flush=True)
-        print(_tail(LOG_PATH, 20_000), flush=True)
-        print("[colab] --- end failure log ---", flush=True)
+        print(_tail(LOG_PATH, 12000), flush=True)
+        raise SystemExit(f"benchmark failed with exit code {returncode}")
 
     _archive_outputs()
-    return returncode
+    return 0
 
 
 if __name__ == "__main__":
