@@ -1,4 +1,4 @@
-# PID-JEPA
+# D-JEPA
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
@@ -62,38 +62,38 @@ pidjepa --mode synthetic --quick
 
 All defaults are the values used for the paper.
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--mode` | `clevr` | `synthetic` or `clevr` |
-| `--seeds` | `3` | Number of seeds (42, 43, ...) |
-| `--pretrain-steps` | `3000` | Pretraining steps per arm |
-| `--batch-size` | `256` | Pretraining batch size |
-| `--block-dim` | `64` | Dimensions per shared/private block |
-| `--hidden-dim` | `512` | MLP and encoder hidden width |
-| `--transformer-dim` | `256` | Token-encoder model width |
-| `--transformer-layers` | `2` | Token-encoder layers |
-| `--attention-heads` | `4` | Token-encoder attention heads |
-| `--learning-rate` | `1e-3` | AdamW learning rate |
-| `--sigreg-weight` | `0.05` | SIGReg loss weight |
-| `--invariance-weight` | `1.0` | Augmentation-invariance weight |
-| `--cross-modal-weight` | `1.0` | Cross-modal alignment weight |
-| `--reconstruction-weight` | `1.0` | Reconstruction weight |
-| `--independence-weight` | `0.2` | Shared/private independence weight |
-| `--sigreg-slices` | `256` | Random slices in SIGReg |
-| `--views` | `3` | Augmented views per sample (minimum 3) |
-| `--synthetic-samples` | `12000` | Synthetic sample count |
-| `--probe-epochs` | `60` | Maximum probe epochs |
-| `--pid-dim` | `64` | Whitened dimensions per flow-PID source |
-| `--pid-steps` | `400` | Flow-PID training steps |
-| `--no-flow-pid` | off | Skip flow-PID (saves time) |
-| `--clevr-images` | `3000` | CLEVR images to stream |
-| `--questions-per-image` | `6` | QA pairs per image |
-| `--vision-grid` | `4` | DINOv2 patch pooling grid |
-| `--max-answer-classes` | `40` | Answer vocabulary size |
-| `--max-text-length` | `32` | BERT token length |
-| `--output-dir` | `results` | Output directory |
-| `--device` | auto | `cpu` or `cuda` |
-| `--quick` | off | Tiny fast run |
+| Flag                      | Default   | Meaning                                 |
+| ------------------------- | --------- | --------------------------------------- |
+| `--mode`                  | `clevr`   | `synthetic` or `clevr`                  |
+| `--seeds`                 | `3`       | Number of seeds (42, 43, ...)           |
+| `--pretrain-steps`        | `3000`    | Pretraining steps per arm               |
+| `--batch-size`            | `256`     | Pretraining batch size                  |
+| `--block-dim`             | `64`      | Dimensions per shared/private block     |
+| `--hidden-dim`            | `512`     | MLP and encoder hidden width            |
+| `--transformer-dim`       | `256`     | Token-encoder model width               |
+| `--transformer-layers`    | `2`       | Token-encoder layers                    |
+| `--attention-heads`       | `4`       | Token-encoder attention heads           |
+| `--learning-rate`         | `1e-3`    | AdamW learning rate                     |
+| `--sigreg-weight`         | `0.05`    | SIGReg loss weight                      |
+| `--invariance-weight`     | `1.0`     | Augmentation-invariance weight          |
+| `--cross-modal-weight`    | `1.0`     | Cross-modal alignment weight            |
+| `--reconstruction-weight` | `1.0`     | Reconstruction weight                   |
+| `--independence-weight`   | `0.2`     | Shared/private independence weight      |
+| `--sigreg-slices`         | `256`     | Random slices in SIGReg                 |
+| `--views`                 | `3`       | Augmented views per sample (minimum 3)  |
+| `--synthetic-samples`     | `12000`   | Synthetic sample count                  |
+| `--probe-epochs`          | `60`      | Maximum probe epochs                    |
+| `--pid-dim`               | `64`      | Whitened dimensions per flow-PID source |
+| `--pid-steps`             | `400`     | Flow-PID training steps                 |
+| `--no-flow-pid`           | off       | Skip flow-PID (saves time)              |
+| `--clevr-images`          | `3000`    | CLEVR images to stream                  |
+| `--questions-per-image`   | `6`       | QA pairs per image                      |
+| `--vision-grid`           | `4`       | DINOv2 patch pooling grid               |
+| `--max-answer-classes`    | `40`      | Answer vocabulary size                  |
+| `--max-text-length`       | `32`      | BERT token length                       |
+| `--output-dir`            | `results` | Output directory                        |
+| `--device`                | auto      | `cpu` or `cuda`                         |
+| `--quick`                 | off       | Tiny fast run                           |
 
 ## Outputs
 
@@ -118,12 +118,12 @@ python scripts/regen_figures.py results/report.json
 
 ## Example figures
 
-| Factor dissection | Modality gap |
-| --- | --- |
+| Factor dissection                                               | Modality gap                                  |
+| --------------------------------------------------------------- | --------------------------------------------- |
 | ![Factor dissection](assets/fig3_factor_dissection_heatmap.png) | ![Modality gap](assets/fig2_modality_gap.png) |
 
-| Probe-PID | Flow-PID |
-| --- | --- |
+| Probe-PID                               | Flow-PID                              |
+| --------------------------------------- | ------------------------------------- |
 | ![Probe PID](assets/fig6_probe_pid.png) | ![Flow PID](assets/fig7_flow_pid.png) |
 
 ## Package layout
