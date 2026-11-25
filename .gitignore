@@ -22,8 +22,6 @@ logs/
 *.tar.gz
 
 # Paper drafts and unrelated local documents
-/drafts/
-*.pdf
 
 # Editors and operating systems
 .DS_Store

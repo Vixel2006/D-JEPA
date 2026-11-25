@@ -2,8 +2,8 @@
 # Run the current working tree on a fresh Colab VM and pull the outputs back.
 #
 # Usage:
-#   scripts/colab_run.sh --mode synthetic --quick --device cpu
-#   scripts/colab_run.sh --mode clevr --seeds 3 --pretrain-steps 3000
+#   scripts/colab_run.sh --dataset synthetic --epochs 1 --n-samples 64
+#   scripts/colab_run.sh --dataset npz --dataset-path data.npz --mode train
 #
 # Environment overrides:
 #   SESSION=name       Colab session name (default: pidjepa-<timestamp>)
@@ -32,8 +32,8 @@ trap cleanup EXIT
 
 echo "[colab-run] packing working tree..."
 # Only exclude caches and VCS metadata. Do NOT exclude bare names such as
-# "data": tar matches those at every depth, which would silently drop
-# src/pidjepa/data.py.
+# "data": tar matches those at every depth, which would silently drop data
+# files needed by the run.
 tar -czf "$ARCHIVE" \
   -C "$ROOT" \
   --exclude='*/__pycache__' \
@@ -43,7 +43,7 @@ tar -czf "$ARCHIVE" \
   --exclude='*.egg-info' \
   --exclude='.venv' \
   --exclude='.git' \
-  src pyproject.toml README.md requirements.txt scripts
+  main.py src configs pyproject.toml README.md scripts
 
 echo "[colab-run] creating session '$SESSION'..."
 if [[ -n "$GPU" ]]; then
@@ -56,11 +56,20 @@ echo "[colab-run] uploading source archive..."
 colab upload -s "$SESSION" "$ARCHIVE" /content/pidjepa_src.tar.gz
 
 echo "[colab-run] installing dependencies..."
-colab exec -s "$SESSION" --timeout 1200 <<'PY'
+colab exec -s "$SESSION" --timeout 1800 <<'PY'
+import importlib.util
 import os
 import subprocess
 import sys
 import tarfile
+
+
+def has_module(name):
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
+
 
 repo = "/content/pidjepa"
 os.makedirs(repo, exist_ok=True)
@@ -70,18 +79,12 @@ with tarfile.open("/content/pidjepa_src.tar.gz") as archive:
     except TypeError:  # Python < 3.12
         archive.extractall(repo)
 
-required = ["src/pidjepa/cli.py", "src/pidjepa/models.py", "scripts/colab_remote.py"]
+required = ["main.py", "src/models/djepa.py", "src/train/pretraining.py", "scripts/colab_remote.py"]
 missing = [path for path in required if not os.path.exists(os.path.join(repo, path))]
 if missing:
     raise SystemExit(f"source archive is incomplete, missing: {missing}")
 
-subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", "-q",
-     "seaborn", "scikit-learn", "transformers", "datasets"]
-)
-subprocess.check_call(
-    [sys.executable, "-m", "pip", "install", "-q", "--no-deps", repo]
-)
+subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-e", repo])
 print("[colab] install complete")
 PY
 
