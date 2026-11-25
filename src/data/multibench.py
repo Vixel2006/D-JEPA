@@ -13,7 +13,12 @@ import shutil
 import subprocess
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+
+if TYPE_CHECKING:
+    from .dataset import PreparedDataset
 
 MMIMDB_URL = "https://archive.org/download/mmimdb/multimodal_imdb.hdf5"
 UR_FUNNY_DRIVE_URL = "https://drive.google.com/drive/folders/1Agzm157lciMONHOHemHRSySmjn1ahHX1?usp=sharing"
@@ -234,3 +239,66 @@ def get_ur_funny_dataloaders(
             )
         )
     return tuple(output)
+
+
+def load_multibench_prepared_dataset(
+    name: str,
+    path: str | Path,
+    *,
+    batch_size: int = 256,
+) -> PreparedDataset:
+    """Materialize a MultiBench dataset in the in-memory format used by main.py."""
+    from .dataset import PreparedDataset
+
+    key = name.lower().replace("_", "-")
+    if key in {"mmimdb", "mm-imdb"}:
+        train_loader, valid_loader, test_loader = get_mmimdb_dataloaders(
+            path, batch_size=batch_size, num_workers=0, train_shuffle=False
+        )
+        modality_names = ("text", "vision")
+
+        def unpack(loader):
+            rows, labels = [], []
+            for text, image, target in loader:
+                rows.append((text.numpy(), image.numpy()))
+                labels.append(target.numpy())
+            return [np.concatenate([row[index] for row in rows]) for index in range(2)], np.concatenate(labels)
+
+    elif key in {"urfunny", "ur-funny", "humor"}:
+        train_loader, valid_loader, test_loader = get_ur_funny_dataloaders(
+            path, batch_size=batch_size, num_workers=0, train_shuffle=False
+        )
+        modality_names = ("text", "vision", "audio")
+
+        def unpack(loader):
+            rows = {name: [] for name in modality_names}
+            labels = []
+            for batch in loader:
+                for name in modality_names:
+                    rows[name].append(batch[name].numpy())
+                labels.append(batch["label"].numpy())
+            return [np.concatenate(rows[name]) for name in modality_names], np.concatenate(labels)
+
+    else:
+        raise ValueError("name must be 'mmimdb' or 'ur-funny'")
+
+    train_rows, train_labels = unpack(train_loader)
+    valid_rows, valid_labels = unpack(valid_loader)
+    test_rows, test_labels = unpack(test_loader)
+    context = {
+        name: np.concatenate((train_rows[index], valid_rows[index], test_rows[index])).astype(
+            np.float32
+        )
+        for index, name in enumerate(modality_names)
+    }
+    labels = np.concatenate((train_labels, valid_labels, test_labels))
+    n_train = len(train_labels) + len(valid_labels)
+    train_indices = np.arange(n_train, dtype=np.int32)
+    test_indices = np.arange(n_train, len(labels), dtype=np.int32)
+    return PreparedDataset(
+        context=context,
+        target={name: values.copy() for name, values in context.items()},
+        factors={"labels": labels.astype(np.float32)},
+        train_indices=train_indices,
+        test_indices=test_indices,
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import itertools
 import json
 import time
@@ -14,15 +15,25 @@ import optax
 import orbax.checkpoint as ocp
 
 if __package__:
-    from .data import load_npz_dataset, make_synthetic_dataset
+    from .data import (
+        download_multibench_dataset,
+        load_multibench_prepared_dataset,
+        load_npz_dataset,
+        make_synthetic_dataset,
+    )
     from .eval import evaluate_flow_pid, evaluate_representations
-    from .models import DJEPA, AudioEncoder, TextEncoder, VisionEncoder
+    from .models import DJEPA, AudioEncoder, FeatureEncoder, TextEncoder, VisionEncoder
     from .train import create_pretrain_state, make_train_step
     from .utils.figures import plot_factor_r2_heatmap, plot_tsne
 else:
-    from src.data import load_npz_dataset, make_synthetic_dataset
+    from src.data import (
+        download_multibench_dataset,
+        load_multibench_prepared_dataset,
+        load_npz_dataset,
+        make_synthetic_dataset,
+    )
     from src.eval import evaluate_flow_pid, evaluate_representations
-    from src.models import DJEPA, AudioEncoder, TextEncoder, VisionEncoder
+    from src.models import DJEPA, AudioEncoder, FeatureEncoder, TextEncoder, VisionEncoder
     from src.train import create_pretrain_state, make_train_step
     from src.utils.figures import plot_factor_r2_heatmap, plot_tsne
 
@@ -33,8 +44,10 @@ VARIANTS = {"lejepa": None}
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("train", "eval", "train+eval"), default="train+eval")
-    parser.add_argument("--dataset", choices=("synthetic", "npz"), default="synthetic")
-    parser.add_argument("--dataset-path", type=Path, help="NPZ file (required for --dataset npz)")
+    parser.add_argument(
+        "--dataset", choices=("synthetic", "npz", "mmimdb", "ur-funny"), default="synthetic"
+    )
+    parser.add_argument("--dataset-path", type=Path, help="Dataset file; downloaded if omitted for MultiBench")
     parser.add_argument("--modalities", help="Comma-separated subset, e.g. vision,text,audio")
     parser.add_argument("--variant", choices=(*VARIANTS, "all"), default="lejepa")
     parser.add_argument("--epochs", type=int, default=10)
@@ -45,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--projection-dim", type=int, default=32)
     parser.add_argument("--vocab-size", type=int, default=256)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seeds", type=int, default=1, help="Number of consecutive seeds to run")
     parser.add_argument("--sigreg-weight", type=float, default=0.05)
     parser.add_argument("--alignment-weight", type=float, default=1.0)
     parser.add_argument("--covariance-weight", type=float, default=1.0)
@@ -60,6 +74,9 @@ def _load_dataset(args: argparse.Namespace):
     if args.dataset == "synthetic":
         names = modalities or ("vision", "text", "audio")
         return make_synthetic_dataset(args.n_samples, args.seed, names)
+    if args.dataset in {"mmimdb", "ur-funny"}:
+        path = args.dataset_path or download_multibench_dataset(args.dataset)
+        return load_multibench_prepared_dataset(args.dataset, path)
     if args.dataset_path is None:
         raise ValueError("--dataset-path is required when --dataset is npz")
     return load_npz_dataset(args.dataset_path, modalities, seed=args.seed)
@@ -68,6 +85,14 @@ def _load_dataset(args: argparse.Namespace):
 def _make_model(modalities: tuple[str, ...], args: argparse.Namespace) -> DJEPA:
     encoders = {}
     for name in modalities:
+        if args.dataset in {"mmimdb", "ur-funny"}:
+            encoders[name] = FeatureEncoder(
+                embedding_dim=args.embedding_dim,
+                num_heads=4,
+                num_layers=1,
+                mlp_dim=2 * args.embedding_dim,
+            )
+            continue
         if name == "vision":
             encoders[name] = VisionEncoder(
                 embedding_dim=args.embedding_dim,
@@ -210,34 +235,52 @@ def _evaluate(args, model: DJEPA, dataset, variant: str, state):
 
 def main() -> None:
     args = parse_args()
-    if args.epochs < 1 or args.batch_size < 1 or args.n_samples < 20:
-        raise ValueError("epochs and batch size must be positive; n-samples must be at least 20")
-    dataset = _load_dataset(args)
-    variants = list(VARIANTS) if args.variant == "all" else [args.variant]
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    run_summary = {"dataset": args.dataset, "modalities": dataset.modalities, "variants": {}}
+    if args.epochs < 1 or args.batch_size < 1 or args.n_samples < 20 or args.seeds < 1:
+        raise ValueError("epochs, batch size, and seeds must be positive; n-samples must be at least 20")
+    all_runs = []
+    for seed_offset in range(args.seeds):
+        run_args = copy.copy(args)
+        run_args.seed = args.seed + seed_offset
+        if args.seeds > 1:
+            run_args.output_dir = args.output_dir / f"seed_{run_args.seed}"
+        dataset = _load_dataset(run_args)
+        variants = list(VARIANTS) if run_args.variant == "all" else [run_args.variant]
+        run_args.output_dir.mkdir(parents=True, exist_ok=True)
+        run_summary = {
+            "dataset": run_args.dataset,
+            "seed": run_args.seed,
+            "modalities": dataset.modalities,
+            "variants": {},
+        }
 
-    for variant in variants:
-        model = _make_model(dataset.modalities, args)
-        sample = {name: values[:2] for name, values in dataset.context.items()}
-        target_sample = {name: values[:2] for name, values in dataset.target.items()}
-        optimizer = _optimizer(args.learning_rate)
-        state = create_pretrain_state(
-            model, jax.random.PRNGKey(args.seed), sample, target_sample, optimizer
-        )
-        history = []
-        if args.mode in ("train", "train+eval"):
-            state, history = _train(args, model, dataset, variant, state, optimizer)
-        elif args.mode == "eval":
-            state = _restore_checkpoint(args.output_dir / "checkpoints" / variant, state)
-        run_summary["variants"][variant] = {"history": history}
-        if args.mode in ("eval", "train+eval"):
-            run_summary["variants"][variant]["metrics"] = _evaluate(
-                args, model, dataset, variant, state
+        for variant in variants:
+            model = _make_model(dataset.modalities, run_args)
+            sample = {name: values[:2] for name, values in dataset.context.items()}
+            target_sample = {name: values[:2] for name, values in dataset.target.items()}
+            optimizer = _optimizer(run_args.learning_rate)
+            state = create_pretrain_state(
+                model, jax.random.PRNGKey(run_args.seed), sample, target_sample, optimizer
             )
+            history = []
+            if run_args.mode in ("train", "train+eval"):
+                state, history = _train(run_args, model, dataset, variant, state, optimizer)
+            elif run_args.mode == "eval":
+                state = _restore_checkpoint(run_args.output_dir / "checkpoints" / variant, state)
+            run_summary["variants"][variant] = {"history": history}
+            if run_args.mode in ("eval", "train+eval"):
+                run_summary["variants"][variant]["metrics"] = _evaluate(
+                    run_args, model, dataset, variant, state
+                )
 
-    with (args.output_dir / "run.json").open("w", encoding="utf-8") as stream:
-        json.dump(run_summary, stream, indent=2, allow_nan=True)
+        with (run_args.output_dir / "run.json").open("w", encoding="utf-8") as stream:
+            json.dump(run_summary, stream, indent=2, allow_nan=True)
+        all_runs.append(run_summary)
+        print(f"Completed seed {run_args.seed}; outputs: {run_args.output_dir}")
+
+    if args.seeds > 1:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+        with (args.output_dir / "runs.json").open("w", encoding="utf-8") as stream:
+            json.dump(all_runs, stream, indent=2, allow_nan=True)
 
 
 if __name__ == "__main__":

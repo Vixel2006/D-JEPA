@@ -5,6 +5,7 @@ from .multibench import (
     download_multibench_dataset,
     get_mmimdb_dataloaders,
     get_ur_funny_dataloaders,
+    load_multibench_prepared_dataset,
 )
 from .synthetic import make_synthetic_dataset
 
@@ -13,6 +14,7 @@ __all__ = [
     "download_multibench_dataset",
     "get_mmimdb_dataloaders",
     "get_ur_funny_dataloaders",
+    "load_multibench_prepared_dataset",
     "load_npz_dataset",
     "make_synthetic_dataset",
 ]

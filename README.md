@@ -84,6 +84,18 @@ dictionaries with `text`, `vision`, `audio`, and `label` tensors. If the Drive
 folder layout changes, download its processed `humor.pkl` manually and pass
 that file path to `get_ur_funny_dataloaders`.
 
+Run the full 10-epoch train-and-evaluate job with three seeds (dataset files
+download automatically on first use):
+
+```bash
+python main.py --dataset mmimdb --seeds 3 --batch-size 64 --output-dir runs/mmimdb
+python main.py --dataset ur-funny --seeds 3 --batch-size 64 --output-dir runs/ur_funny
+```
+
+Each seed writes checkpoints, metrics, and plots under `runs/<dataset>/seed_N/`;
+`runs/<dataset>/runs.json` collects the per-seed summaries. Use
+`--dataset-path /path/to/file` to use a previously downloaded file.
+
 ## Run
 
 Every run is described by a JSON/YAML config. Example configs live in
