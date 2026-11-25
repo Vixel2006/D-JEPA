@@ -13,6 +13,7 @@ import jax
 import numpy as np
 import optax
 import orbax.checkpoint as ocp
+from tqdm.auto import tqdm
 
 if __package__:
     from .data import (
@@ -165,12 +166,21 @@ def _train(args, model: DJEPA, dataset, variant: str, state, optimizer):
     for epoch in range(1, args.epochs + 1):
         indices = rng.permutation(dataset.train_indices)
         epoch_logs = []
-        for start in range(0, len(indices), args.batch_size):
+        batches = range(0, len(indices), args.batch_size)
+        progress = tqdm(
+            batches,
+            total=(len(indices) + args.batch_size - 1) // args.batch_size,
+            desc=f"{variant} epoch {epoch:03d}/{args.epochs}",
+            unit="batch",
+        )
+        for start in progress:
             batch = indices[start : start + args.batch_size]
             context = {name: values[batch] for name, values in dataset.context.items()}
             target = {name: values[batch] for name, values in dataset.target.items()}
             state, logs = train_step(state, context, target)
-            epoch_logs.append({name: float(value) for name, value in logs.items()})
+            batch_logs = {name: float(value) for name, value in logs.items()}
+            epoch_logs.append(batch_logs)
+            progress.set_postfix(loss=f"{batch_logs['loss']:.4f}")
         means = {name: float(np.mean([row[name] for row in epoch_logs])) for name in epoch_logs[0]}
         history.append(means)
         print(f"{variant} epoch {epoch:03d}/{args.epochs}: loss={means['loss']:.4f}")
