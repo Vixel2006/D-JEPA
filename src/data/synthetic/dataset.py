@@ -1,63 +1,86 @@
-"""A small paired dataset with known shared and modality-private factors."""
-
-from __future__ import annotations
-
-import numpy as np
-
-from ..dataset import PreparedDataset, make_split
+import torch
+from torch.utils.data import Dataset
 
 
-def make_synthetic_dataset(
-    n_samples: int = 1024,
-    seed: int = 0,
-    modalities: tuple[str, ...] = ("vision", "text", "audio"),
-) -> PreparedDataset:
-    """Generate two noisy views per modality and continuous probe targets."""
-    rng = np.random.default_rng(seed)
-    shared = rng.normal(size=(n_samples, 4)).astype(np.float32)
-    private = {
-        name: rng.normal(size=(n_samples, 4)).astype(np.float32) for name in modalities
-    }
-    context, target = {}, {}
+class SyntheticDataset(Dataset):
+    """Paired image/text views with known shared and private factors."""
 
-    for name in modalities:
-        latent = np.concatenate((shared, private[name]), axis=-1)
-        if name == "text":
-            # Each sequence position represents a quantized latent coordinate.
-            coordinates = np.tile(np.arange(8), 2)
+    def __init__(
+        self,
+        n_samples: int = 1024,
+        seed: int = 0,
+        split: str = "train",
+        train_fraction: float = 0.8,
+    ):
+        if split not in {"train", "validation", "all"}:
+            raise ValueError("split must be 'train', 'validation', or 'all'.")
 
-            def make_text_view():
-                bins = np.clip(
-                    ((np.tanh(latent[:, coordinates]) + 1.0) * 16).astype(np.int32), 0, 31
-                )
-                return bins + coordinates[None, :] * 32
+        generator = torch.Generator().manual_seed(seed)
+        shared = torch.randn(n_samples, 4, generator=generator)
+        private_vision = torch.randn(n_samples, 4, generator=generator)
+        private_text = torch.randn(n_samples, 4, generator=generator)
+        nuisance_vision = torch.randn(n_samples, 1, generator=generator)
+        nuisance_text = torch.randn(n_samples, 1, generator=generator)
 
-        elif name == "vision":
-            projection = rng.normal(size=(8, 3)).astype(np.float32) / np.sqrt(8)
+        vision_latent = torch.cat((shared, private_vision, nuisance_vision), dim=-1)
+        text_latent = torch.cat((shared, private_text, nuisance_text), dim=-1)
 
-            def make_vision_view():
-                pixels = np.tanh(latent @ projection)
-                image = np.broadcast_to(pixels[:, None, None, :], (n_samples, 32, 32, 3))
-                return (image + 0.1 * rng.normal(size=image.shape)).astype(np.float32)
+        self.context = {
+            "vision": self._make_images(vision_latent, generator),
+            "text": self._make_text(text_latent, generator),
+        }
+        self.target = {
+            "vision": self._make_images(vision_latent, generator),
+            "text": self._make_text(text_latent, generator),
+        }
+        self.factors = {
+            "shared": shared,
+            "private_vision": private_vision,
+            "private_text": private_text,
+            "nuisance_vision": nuisance_vision,
+            "nuisance_text": nuisance_text,
+            "synergy": torch.sign(private_vision[:, 0])
+            * torch.sign(private_text[:, 0])
+            + 0.05 * torch.randn(n_samples, generator=generator),
+        }
 
-        elif name == "audio":
-            projection = rng.normal(size=(8, 8)).astype(np.float32) / np.sqrt(8)
-
-            def make_audio_view():
-                frames = np.tanh(latent @ projection)[:, None, :]
-                frames = np.broadcast_to(frames, (n_samples, 32, 8))
-                return (frames + 0.1 * rng.normal(size=frames.shape)).astype(np.float32)
-
+        permutation = torch.randperm(n_samples, generator=generator)
+        split_at = int(n_samples * train_fraction)
+        if split == "train":
+            self.indices = permutation[:split_at]
+        elif split == "validation":
+            self.indices = permutation[split_at:]
         else:
-            raise ValueError(f"No synthetic input generator for modality {name!r}")
+            self.indices = torch.arange(n_samples)
 
-        if name == "text":
-            context[name], target[name] = make_text_view(), make_text_view()
-        elif name == "vision":
-            context[name], target[name] = make_vision_view(), make_vision_view()
-        else:
-            context[name], target[name] = make_audio_view(), make_audio_view()
+    @staticmethod
+    def _make_images(latent, generator):
+        values = torch.tanh(latent)
+        image = torch.zeros(len(latent), 32, 32, 3)
+        for coordinate in range(values.shape[1]):
+            row, column = divmod(coordinate, 5)
+            channel = coordinate % 3
+            image[:, row * 16 : (row + 1) * 16, column * 6 : (column + 1) * 6, channel] = (
+                values[:, coordinate, None, None]
+            )
+        noise = 0.05 * torch.randn(image.shape, generator=generator)
+        return (image + noise).clamp(-1, 1)
 
-    factors = {"shared": shared, **{f"private_{name}": values for name, values in private.items()}}
-    train_indices, test_indices = make_split(n_samples, seed)
-    return PreparedDataset(context, target, factors, train_indices, test_indices)
+    @staticmethod
+    def _make_text(latent, generator):
+        noisy_latent = latent + 0.03 * torch.randn(latent.shape, generator=generator)
+        coordinates = torch.arange(latent.shape[1]).repeat(2)
+        values = noisy_latent[:, coordinates]
+        bins = ((torch.tanh(values) + 1) * 16).long().clamp(0, 31)
+        return bins + coordinates * 32
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, index):
+        row = self.indices[index].item()
+        return {
+            "context": {name: value[row] for name, value in self.context.items()},
+            "target": {name: value[row] for name, value in self.target.items()},
+            "factors": {name: value[row] for name, value in self.factors.items()},
+        }

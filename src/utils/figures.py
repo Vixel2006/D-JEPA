@@ -1,101 +1,75 @@
-"""Small reusable plotting helpers for representation analysis."""
-
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Sequence
 
-import matplotlib
-
-matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from sklearn.manifold import TSNE
+import seaborn as sns
 
 
-def plot_tsne(
-    representations: np.ndarray,
-    labels: Sequence,
-    path: str | Path,
-    *,
-    title: str = "t-SNE of representations",
-    perplexity: float = 30.0,
-    seed: int = 0,
-) -> np.ndarray:
-    """Save a 2D t-SNE scatter plot and return the projected coordinates."""
-    representations = np.asarray(representations)
-    labels = np.asarray(labels)
-    if representations.ndim != 2 or len(representations) != len(labels):
-        raise ValueError("Representations must be 2D and have one label per row")
-    if len(representations) < 3:
-        raise ValueError("t-SNE requires at least three examples")
-    projection = TSNE(
-        n_components=2,
-        perplexity=min(float(perplexity), len(representations) - 1.0),
-        init="pca",
-        learning_rate="auto",
-        random_state=seed,
-    ).fit_transform(representations)
+def plot_factor_probes(scores, path, metric="r2"):
+    """Plot factor-probe scores as a representation-by-factor heatmap."""
+    rows = {}
+    for name, value in scores.items():
+        if not name.startswith("probe/") or not name.endswith(f"_{metric}"):
+            continue
+        representation, factor = name.removeprefix("probe/").rsplit("/", 1)
+        factor = factor.removesuffix(f"_{metric}")
+        rows.setdefault(representation, {})[factor] = value
 
-    fig, axis = plt.subplots(figsize=(7, 5.5))
-    categories, encoded = np.unique(labels.astype(str), return_inverse=True)
-    scatter = axis.scatter(
-        projection[:, 0], projection[:, 1], c=encoded, cmap="tab10", s=14, alpha=0.8
+    if not rows:
+        raise ValueError(f"No probe scores found for metric {metric!r}.")
+
+    representations = list(rows)
+    factors = list(dict.fromkeys(factor for row in rows.values() for factor in row))
+    values = np.array(
+        [[rows[representation].get(factor, np.nan) for factor in factors]
+         for representation in representations]
     )
-    handles, _ = scatter.legend_elements()
-    axis.legend(handles, categories, title="Group", frameon=False, bbox_to_anchor=(1.02, 1))
-    axis.set(title=title, xlabel="t-SNE 1", ylabel="t-SNE 2")
-    _save(fig, path)
-    return projection
-
-
-def plot_heatmap(
-    values: np.ndarray,
-    row_labels: Sequence[str],
-    column_labels: Sequence[str],
-    path: str | Path,
-    *,
-    title: str = "",
-    value_label: str = "Score",
-    vmin: float | None = None,
-    vmax: float | None = None,
-) -> None:
-    """Save a labeled matrix heatmap, suitable for factor R² scores."""
-    values = np.asarray(values)
-    if values.shape != (len(row_labels), len(column_labels)):
-        raise ValueError("Heatmap dimensions must match row and column labels")
-    width = max(5.0, 0.8 * len(column_labels) + 2.0)
-    height = max(3.5, 0.55 * len(row_labels) + 1.5)
-    fig, axis = plt.subplots(figsize=(width, height))
-    image = axis.imshow(values, aspect="auto", cmap="viridis", vmin=vmin, vmax=vmax)
-    axis.set_xticks(np.arange(len(column_labels)), labels=column_labels, rotation=35, ha="right")
-    axis.set_yticks(np.arange(len(row_labels)), labels=row_labels)
-    axis.set_title(title)
-    colorbar = fig.colorbar(image, ax=axis)
-    colorbar.set_label(value_label)
-    for row in range(values.shape[0]):
-        for column in range(values.shape[1]):
-            value = values[row, column]
-            label = "nan" if not np.isfinite(value) else f"{value:.2f}"
-            axis.text(column, row, label, ha="center", va="center", color="white", fontsize=8)
-    fig.tight_layout()
+    width = max(8, 1.2 * len(factors))
+    height = max(4, 0.55 * len(representations))
+    fig, ax = plt.subplots(figsize=(width, height), layout="constrained")
+    sns.heatmap(
+        values,
+        xticklabels=factors,
+        yticklabels=representations,
+        annot=True,
+        fmt=".2f",
+        cmap="vlag" if metric == "r2" else "viridis",
+        center=0 if metric == "r2" else None,
+        vmin=-1 if metric == "r2" else 0,
+        vmax=1,
+        ax=ax,
+    )
+    ax.set_xlabel("Ground-truth factor")
+    ax.set_ylabel("Representation")
+    ax.set_title(f"Linear probe {metric.upper()}")
     _save(fig, path)
 
 
-def plot_factor_r2_heatmap(
-    scores: dict[str, dict[str, float]], path: str | Path, *, title: str = "Factor probe R²"
-) -> None:
-    """Plot the nested mapping returned by ``factor_r2_probes``."""
-    rows = list(scores)
-    columns = list(dict.fromkeys(factor for row in scores.values() for factor in row))
-    values = np.asarray(
-        [[scores[row].get(column, np.nan) for column in columns] for row in rows], dtype=float
-    )
-    plot_heatmap(values, rows, columns, path, title=title, value_label="Held-out R²")
+def plot_pid_atoms(pid_results, path):
+    """Plot PID atoms as stacked bars, one bar per target variable.
+
+    ``pid_results`` maps targets to dictionaries with keys ``redundant``,
+    ``unique_vision``, ``unique_text``, and ``synergy``.
+    """
+    atoms = ("redundant", "unique_vision", "unique_text", "synergy")
+    targets = list(pid_results)
+    bottom = [0.0] * len(targets)
+    fig, ax = plt.subplots(figsize=(max(7, len(targets) * 1.2), 5), layout="constrained")
+
+    for atom in atoms:
+        values = [pid_results[target].get(atom, 0.0) for target in targets]
+        ax.bar(targets, values, bottom=bottom, label=atom.replace("_", " "))
+        bottom = [base + value for base, value in zip(bottom, values)]
+
+    ax.set_ylabel("Information (bits)")
+    ax.set_xlabel("Target variable")
+    ax.set_title("Partial information decomposition")
+    ax.legend()
+    _save(fig, path)
 
 
-def _save(figure, path: str | Path) -> None:
+def _save(fig, path):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    figure.savefig(path, dpi=220, bbox_inches="tight")
-    plt.close(figure)
+    fig.savefig(path, dpi=200, bbox_inches="tight")
+    plt.close(fig)

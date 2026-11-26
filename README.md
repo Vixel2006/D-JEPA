@@ -1,7 +1,7 @@
 # D-JEPA
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)]
 
 Partial-information decomposition of multimodal joint-embedding pretraining.
 The benchmark compares **D-JEPA** against **alignment-only** representations on
@@ -40,16 +40,7 @@ and a `report.json` schema that can regenerate most figures without retraining.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Optional TensorBoard logging
-pip install -e ".[dev]"
-
-# Optional frozen extractors for the real CLEVR benchmark
-pip install -e ".[dev,clevr]"
-
-# Optional MultiBench MM-IMDb and UR-FUNNY downloaders / PyTorch DataLoaders
-pip install -e ".[data]"
+pip install -r requirements.txt
 ```
 
 ### MM-IMDb and UR-FUNNY
@@ -124,8 +115,8 @@ python main.py --config configs/synthetic_paper.yaml \
 python main.py --config configs/synthetic_paper.yaml --quick
 ```
 
-`python main.py` is the entry point (or `python -m pidjepa`). Use
-`--print-config` to inspect the fully resolved configuration before training.
+`python main.py` is the entry point. Use `--print-config` to inspect the fully
+resolved configuration before training.
 
 Training and evaluation are decoupled: pretrain once, then evaluate later
 against the saved checkpoints.
