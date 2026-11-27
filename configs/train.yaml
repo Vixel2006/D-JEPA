@@ -9,7 +9,11 @@ wandb:
   mode: online
 
 data:
+  dataset: synthetic
   n_samples: 1024
+  max_text_length: 128
+  tokenizer: bert-base-uncased
+  text_mask_probability: 0.08
 
 model:
   image_size: 128

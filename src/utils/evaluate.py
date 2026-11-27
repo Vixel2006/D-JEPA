@@ -69,7 +69,7 @@ def _collect_features(
         )
         for name, value in current.items():
             features[name].append(value.cpu())
-        for name, value in batch["factors"].items():
+        for name, value in batch.get("factors", {}).items():
             factors.setdefault(name, []).append(value)
 
     features = {name: torch.cat(values).numpy() for name, values in features.items()}
@@ -116,14 +116,19 @@ def evaluate_representation(
         factorcl_model,
     )
 
-    metrics = factor_probe_metrics(
-        train_features, train_factors, validation_features, validation_factors
-    )
-    metrics.update(
-        joint_synergy_metrics(
-            train_features, train_factors, validation_features, validation_factors
+    metrics = {}
+    if train_factors and validation_factors:
+        metrics.update(
+            factor_probe_metrics(
+                train_features, train_factors, validation_features, validation_factors
+            )
         )
-    )
+        if "synergy" in train_factors and "synergy" in validation_factors:
+            metrics.update(
+                joint_synergy_metrics(
+                    train_features, train_factors, validation_features, validation_factors
+                )
+            )
     metrics.update(representation_health(validation_features))
 
     output_dir = Path(output_dir)

@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 import wandb
 
-from ..data.synthetic import SyntheticDataset
+from ..data.datasets import make_dataset_pair
 from ..utils.evaluate import evaluate_representation
 from ..utils.evaluation import encode_vision
 from .loss import alignment_loss, independence_loss, jepa_loss
@@ -27,10 +27,14 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         config=OmegaConf.to_container(cfg, resolve=True),
     )
 
-    train_dataset = SyntheticDataset(
-        n_samples=cfg.data.n_samples,
+    train_dataset, validation_dataset = make_dataset_pair(
+        cfg.data.get("dataset", "synthetic"),
         seed=cfg.seed,
-        split="train",
+        n_samples=cfg.data.get("n_samples", 1024),
+        image_size=cfg.model.image_size,
+        max_text_length=cfg.data.get("max_text_length", 128),
+        tokenizer_name=cfg.data.get("tokenizer", "bert-base-uncased"),
+        text_mask_probability=cfg.data.get("text_mask_probability", 0.08),
     )
     train_loader = DataLoader(
         train_dataset,
@@ -45,11 +49,6 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         batch_size=cfg.training.batch_size,
         shuffle=False,
         num_workers=cfg.training.num_workers,
-    )
-    validation_dataset = SyntheticDataset(
-        n_samples=cfg.data.n_samples,
-        seed=cfg.seed,
-        split="validation",
     )
     validation_loader = DataLoader(
         validation_dataset,
