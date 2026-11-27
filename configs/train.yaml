@@ -1,4 +1,8 @@
 seed: 0
+seeds: [0]
+output_dir: runs
+experiment_name: synthetic_decomposition
+objective: decomposition
 
 wandb:
   project: djepa
@@ -14,7 +18,7 @@ model:
 training:
   batch_size: 16
   num_workers: 0
-  epochs: 1
+  epochs: 10
   learning_rate: 0.0001
   weight_decay: 0.05
 

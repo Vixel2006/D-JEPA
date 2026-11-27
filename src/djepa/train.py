@@ -1,34 +1,29 @@
+from pathlib import Path
+
 import torch
 import tqdm
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 
-if __package__:
-    from .data.synthetic import SyntheticDataset
-    from .evaluate import evaluate_representation
-    from .loss import alignment_loss, independence_loss, jepa_loss
-    from .model.encoders import BertEncoder, ViTEncoder
-    from .model.projectors import Projector
-    from .model.sigreg import SIGReg
-    from .utils.evaluation import encode_vision
-else:
-    from data.synthetic import SyntheticDataset
-    from evaluate import evaluate_representation
-    from loss import alignment_loss, independence_loss, jepa_loss
-    from model.encoders import BertEncoder, ViTEncoder
-    from model.projectors import Projector
-    from model.sigreg import SIGReg
-    from utils.evaluation import encode_vision
+import wandb
+
+from ..data.synthetic import SyntheticDataset
+from ..utils.evaluate import evaluate_representation
+from ..utils.evaluation import encode_vision
+from .loss import alignment_loss, independence_loss, jepa_loss
+from .models import BertEncoder, Projector, SIGReg, ViTEncoder
 
 
-def train(cfg: DictConfig):
+def train(cfg: DictConfig, *, output_dir=".", run_name=None):
     torch.manual_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     run = wandb.init(
         project=cfg.wandb.project,
         mode=cfg.wandb.mode,
+        name=run_name,
         config=OmegaConf.to_container(cfg, resolve=True),
     )
 
@@ -43,6 +38,7 @@ def train(cfg: DictConfig):
         shuffle=True,
         drop_last=True,
         num_workers=cfg.training.num_workers,
+        generator=torch.Generator().manual_seed(cfg.seed),
     )
     train_eval_loader = DataLoader(
         train_dataset,
@@ -65,23 +61,30 @@ def train(cfg: DictConfig):
         raise ValueError(
             "Training dataset is smaller than one full batch; lower the batch size."
         )
-
+    objective = "decomposition"
+    # Keep corresponding modality backbones identically initialized across objectives.
+    torch.manual_seed(cfg.seed)
     vision_encoder = ViTEncoder(
-        img_size=cfg.model.image_size, proj_dim=cfg.model.proj_dim
+        img_size=cfg.model.image_size,
+        proj_dim=cfg.model.proj_dim,
     ).to(device)
+    torch.manual_seed(cfg.seed + 1)
     text_encoder = BertEncoder(proj_dim=cfg.model.proj_dim).to(device)
 
     vision_projector = Projector(cfg.model.proj_dim, 512).to(device)
     text_projector = Projector(cfg.model.proj_dim, 256).to(device)
     sigreg = SIGReg().to(device)
-
+    trainable_modules = (
+        vision_encoder,
+        text_encoder,
+        vision_projector,
+        text_projector,
+    )
+    module_parameters = [
+        parameter for module in trainable_modules for parameter in module.parameters()
+    ]
     optimizer = torch.optim.AdamW(
-        [
-            *vision_encoder.parameters(),
-            *text_encoder.parameters(),
-            *vision_projector.parameters(),
-            *text_projector.parameters(),
-        ],
+        module_parameters,
         lr=cfg.training.learning_rate,
         weight_decay=cfg.training.weight_decay,
     )
@@ -101,8 +104,8 @@ def train(cfg: DictConfig):
     for epoch in range(cfg.training.epochs):
         vision_encoder.train()
         text_encoder.train()
-        vision_projector.train()
-        text_projector.train()
+        for module in trainable_modules[2:]:
+            module.train()
         totals = {"jepa": 0.0, "alignment": 0.0, "independence": 0.0, "sigreg": 0.0}
 
         progress = tqdm.tqdm(
@@ -113,16 +116,14 @@ def train(cfg: DictConfig):
             target = batch["target"]
             images = context["vision"].to(device, non_blocking=True)
             text = context["text"].to(device, non_blocking=True)
-            target_images = target["vision"].to(device, non_blocking=True)
-            target_text = target["text"].to(device, non_blocking=True)
-
             _, c_vision, u_vision = encode_vision(
                 vision_encoder, images, cfg.model.image_size
             )
             _, c_text, u_text = text_encoder(text)
             prediction_vision, z_vision = vision_projector(c_vision, u_vision)
             prediction_text, z_text = text_projector(c_text, u_text)
-
+            target_images = target["vision"].to(device, non_blocking=True)
+            target_text = target["text"].to(device, non_blocking=True)
             target_vision, _, _ = encode_vision(
                 vision_encoder, target_images, cfg.model.image_size
             )
@@ -136,7 +137,10 @@ def train(cfg: DictConfig):
                 c_vision, u_vision
             ) + independence_loss(c_text, u_text)
             loss_sigreg = (
-                sigreg(c_vision) + sigreg(c_text) + sigreg(z_vision) + sigreg(z_text)
+                sigreg(c_vision)
+                + sigreg(c_text)
+                + sigreg(z_vision)
+                + sigreg(z_text)
             )
             loss = (
                 loss_jepa
@@ -144,16 +148,16 @@ def train(cfg: DictConfig):
                 + cfg.loss.independence * loss_independence
                 + cfg.loss.sigreg * loss_sigreg
             )
+            totals["jepa"] += loss_jepa.item()
+            totals["alignment"] += loss_alignment.item()
+            totals["independence"] += loss_independence.item()
+            totals["sigreg"] += loss_sigreg.item()
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
             optimizer.step()
             scheduler.step()
 
-            totals["jepa"] += loss_jepa.item()
-            totals["alignment"] += loss_alignment.item()
-            totals["independence"] += loss_independence.item()
-            totals["sigreg"] += loss_sigreg.item()
             progress.set_postfix(loss=f"{loss.item():.3f}")
 
         metrics = {
@@ -173,25 +177,23 @@ def train(cfg: DictConfig):
         validation_loader,
         vision_encoder,
         text_encoder,
-        vision_projector,
-        text_projector,
+        objective=objective,
         device=device,
         image_size=cfg.model.image_size,
+        output_dir=output_dir,
         wandb_run=run,
     )
 
+    checkpoint = {
+        "vision_encoder": vision_encoder.state_dict(),
+        "text_encoder": text_encoder.state_dict(),
+        "config": OmegaConf.to_container(cfg, resolve=True),
+    }
+    checkpoint["vision_projector"] = vision_projector.state_dict()
+    checkpoint["text_projector"] = text_projector.state_dict()
+
     torch.save(
-        {
-            "vision_encoder": vision_encoder.state_dict(),
-            "text_encoder": text_encoder.state_dict(),
-            "vision_projector": vision_projector.state_dict(),
-            "text_projector": text_projector.state_dict(),
-            "config": OmegaConf.to_container(cfg, resolve=True),
-        },
-        "checkpoint.pt",
+        checkpoint,
+        output_dir / "checkpoint.pt",
     )
     run.finish()
-
-
-if __name__ == "__main__":
-    train()
