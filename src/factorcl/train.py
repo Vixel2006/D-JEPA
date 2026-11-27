@@ -9,7 +9,6 @@ import wandb
 
 from ..data.datasets import make_dataset_pair
 from ..utils.evaluate import evaluate_representation
-from ..utils.downstream import evaluate_downstream
 from .models import FactorCLModel
 
 
@@ -34,6 +33,10 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         max_text_length=cfg.data.get("max_text_length", 128),
         tokenizer_name=cfg.data.get("tokenizer", "bert-base-uncased"),
         text_mask_probability=cfg.data.get("text_mask_probability", 0.08),
+        image_cache_dir=(
+            cfg.data.get("cache_dir", "cache")
+            if cfg.data.get("cache_images", False) else None
+        ),
     )
     train_loader = DataLoader(
         train_dataset,
@@ -158,15 +161,6 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         output_dir=output_dir,
         wandb_run=run,
     )
-    evaluate_downstream(
-        train_eval_loader, validation_loader,
-        dataset=cfg.data.get("dataset", "synthetic"),
-        factorcl_model=model, device=device, image_size=cfg.model.image_size,
-        epochs=cfg.training.get("downstream_epochs", 20),
-        learning_rate=cfg.training.get("downstream_learning_rate", 1e-3),
-        wandb_run=run,
-    )
-
     checkpoint = {
         "factorcl_model": model.state_dict(),
         "config": OmegaConf.to_container(cfg, resolve=True),

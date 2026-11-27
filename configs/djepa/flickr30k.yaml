@@ -3,6 +3,7 @@ seeds: [42, 43, 44]
 output_dir: runs
 experiment_name: flickr30k_djepa
 objective: decomposition
+run_mode: train
 
 wandb:
   project: pidjepa
@@ -13,6 +14,8 @@ data:
   max_text_length: 64
   tokenizer: bert-base-uncased
   text_mask_probability: 0.08
+  cache_images: true
+  cache_dir: runs/image_cache
 
 model:
   image_size: 128
@@ -31,7 +34,7 @@ loss:
   sigreg: 0.05
 
 evaluation:
-  enabled: true
+  data_batch_size: 64
   epochs: 20
   learning_rate: 0.001
   hidden_dim: 256

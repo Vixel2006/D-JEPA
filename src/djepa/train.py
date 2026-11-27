@@ -8,9 +8,7 @@ from torch.utils.data import DataLoader
 import wandb
 
 from ..data.datasets import make_dataset_pair
-from ..utils.evaluate import evaluate_representation
 from ..utils.evaluation import encode_vision
-from .eval import evaluate_dataset
 from .loss import alignment_loss, independence_loss, jepa_loss
 from .models import BertEncoder, Projector, SIGReg, ViTEncoder
 
@@ -36,6 +34,10 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         max_text_length=cfg.data.get("max_text_length", 128),
         tokenizer_name=cfg.data.get("tokenizer", "bert-base-uncased"),
         text_mask_probability=cfg.data.get("text_mask_probability", 0.08),
+        image_cache_dir=(
+            cfg.data.get("cache_dir", "cache")
+            if cfg.data.get("cache_images", False) else None
+        ),
     )
     train_loader = DataLoader(
         train_dataset,
@@ -44,12 +46,6 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         drop_last=True,
         num_workers=cfg.training.num_workers,
         generator=torch.Generator().manual_seed(cfg.seed),
-    )
-    train_eval_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.training.batch_size,
-        shuffle=False,
-        num_workers=cfg.training.num_workers,
     )
     validation_loader = DataLoader(
         validation_dataset,
@@ -168,37 +164,6 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         )
         metrics["epoch"] = epoch
         wandb.log(metrics)
-
-    evaluate_representation(
-        train_eval_loader,
-        validation_loader,
-        vision_encoder,
-        text_encoder,
-        objective=objective,
-        device=device,
-        image_size=cfg.model.image_size,
-        output_dir=output_dir,
-        wandb_run=run,
-    )
-    evaluation_cfg = cfg.get("evaluation", {})
-    if evaluation_cfg.get("enabled", True):
-        evaluate_dataset(
-            cfg.data.get("dataset", "synthetic"),
-            train_eval_loader,
-            validation_loader,
-            vision_encoder=vision_encoder,
-            text_encoder=text_encoder,
-            vision_projector=vision_projector,
-            text_projector=text_projector,
-            device=device,
-            image_size=cfg.model.image_size,
-            epochs=evaluation_cfg.get("epochs", 20),
-            learning_rate=evaluation_cfg.get("learning_rate", 1e-3),
-            hidden_dim=evaluation_cfg.get("hidden_dim", 256),
-            batch_size=evaluation_cfg.get("batch_size", 256),
-            temperature=evaluation_cfg.get("temperature", 0.07),
-            wandb_run=run,
-        )
 
     checkpoint = {
         "vision_encoder": vision_encoder.state_dict(),

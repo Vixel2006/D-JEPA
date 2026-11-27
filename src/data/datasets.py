@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import random
+from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 
@@ -53,13 +55,16 @@ class PairedDataset(Dataset):
         tokenizer: PreTrainedTokenizerBase | None = None,
         tokenizer_name: str = "bert-base-uncased",
         text_mask_probability: float = 0.08,
+        image_cache_path: str | Path | None = None,
     ):
         if not 0 <= text_mask_probability <= 1:
             raise ValueError("text_mask_probability must be between 0 and 1")
         self.dataset = dataset
         self.training = training
+        self.image_size = image_size
         self.max_text_length = max_text_length
         self.text_mask_probability = text_mask_probability
+        self.image_cache_path = Path(image_cache_path) if image_cache_path else None
         self.tokenizer = tokenizer or AutoTokenizer.from_pretrained(tokenizer_name)
         self.text_column = self._find_column(_TEXT_COLUMNS)
         self.image_column = "image" if "image" in dataset.column_names else None
@@ -99,6 +104,7 @@ class PairedDataset(Dataset):
                     transforms.ToTensor(),
                 ]
             )
+        self._cached_images = self._open_or_create_image_cache()
 
     def _find_column(self, candidates: tuple[str, ...]) -> str | None:
         columns = set(self.dataset.column_names)
@@ -150,6 +156,42 @@ class PairedDataset(Dataset):
         image = image.convert("RGB")
         return self.image_transform(image).permute(1, 2, 0).contiguous()
 
+    def _open_or_create_image_cache(self):
+        if self.image_cache_path is None or self.image_column is None:
+            return None
+
+        import numpy as np
+
+        path = self.image_cache_path
+        expected_shape = (len(self), 2, self.image_size, self.image_size, 3)
+        if path.exists():
+            try:
+                cache = np.load(path, mmap_mode="r")
+                if cache.shape == expected_shape and cache.dtype == np.uint8:
+                    print(f"Using cached images: {path}")
+                    return cache
+            except (OSError, ValueError):
+                pass
+            print(f"Image cache shape mismatch; rebuilding: {path}")
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path = path.with_suffix(path.suffix + ".tmp")
+        cache = np.lib.format.open_memmap(
+            temporary_path, mode="w+", dtype=np.uint8, shape=expected_shape
+        )
+        for index in range(len(self)):
+            image = self.dataset[index][self.image_column]
+            for view in range(2):
+                tensor = self._image_view(image)
+                cache[index, view] = (
+                    tensor.numpy().clip(0, 1) * 255
+                ).round().astype(np.uint8)
+        cache.flush()
+        del cache
+        os.replace(temporary_path, path)
+        print(f"Cached {len(self)} image pairs: {path}")
+        return np.load(path, mmap_mode="r")
+
     @staticmethod
     def _label(value: Any) -> Any:
         if isinstance(value, bool):
@@ -168,14 +210,25 @@ class PairedDataset(Dataset):
         return value
 
     def __getitem__(self, index: int) -> dict[str, Any]:
-        row = self.dataset[index]
+        if self._cached_images is None:
+            row = self.dataset[index]
+        else:
+            columns = [self.text_column, self.label_column, self.id_column]
+            row = {
+                column: self.dataset[column][index]
+                for column in columns if column is not None
+            }
         context: dict[str, torch.Tensor] = {}
         target: dict[str, torch.Tensor] = {}
 
         if self.image_column:
-            image = row[self.image_column]
-            context["vision"] = self._image_view(image)
-            target["vision"] = self._image_view(image)
+            if self._cached_images is None:
+                image = row[self.image_column]
+                context["vision"] = self._image_view(image)
+                target["vision"] = self._image_view(image)
+            else:
+                cached = torch.from_numpy(self._cached_images[index].copy()).float() / 255
+                context["vision"], target["vision"] = cached[0], cached[1]
 
         if self.text_column:
             text = self._text(row[self.text_column])
@@ -345,6 +398,7 @@ def make_dataset_pair(
     max_text_length: int = 128,
     tokenizer_name: str = "bert-base-uncased",
     text_mask_probability: float = 0.08,
+    image_cache_dir: str | Path | None = None,
 ):
     """Build train/validation datasets for one paired-modality experiment.
 
@@ -383,7 +437,15 @@ def make_dataset_pair(
         "tokenizer_name": tokenizer_name,
         "text_mask_probability": text_mask_probability,
     }
+    if image_cache_dir is not None:
+        cache_dir = Path(image_cache_dir)
+        cache_tag = f"{normalized}_{image_size}"
+        options["image_cache_path"] = cache_dir / f"{cache_tag}_train.npy"
     validation_options = {**options, "training": False}
+    if image_cache_dir is not None:
+        validation_options["image_cache_path"] = (
+            Path(image_cache_dir) / f"{cache_tag}_validation.npy"
+        )
     dataset_type = supported[normalized]
     train = dataset_type("train", **options)
     validation = dataset_type("validation", **validation_options)
