@@ -10,6 +10,7 @@ import wandb
 from ..data.datasets import make_dataset_pair
 from ..utils.evaluate import evaluate_representation
 from ..utils.evaluation import encode_vision
+from ..utils.downstream import evaluate_downstream
 from .loss import alignment_loss, independence_loss, jepa_loss
 from .models import BertEncoder, Projector, SIGReg, ViTEncoder
 
@@ -180,6 +181,15 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         device=device,
         image_size=cfg.model.image_size,
         output_dir=output_dir,
+        wandb_run=run,
+    )
+    evaluate_downstream(
+        train_eval_loader, validation_loader,
+        dataset=cfg.data.get("dataset", "synthetic"),
+        vision_encoder=vision_encoder, text_encoder=text_encoder,
+        device=device, image_size=cfg.model.image_size,
+        epochs=cfg.training.get("downstream_epochs", 20),
+        learning_rate=cfg.training.get("downstream_learning_rate", 1e-3),
         wandb_run=run,
     )
 

@@ -19,7 +19,7 @@ model:
   proj_dim: 128
 
 training:
-  batch_size: 64
+  batch_size: 128
   num_workers: 4
   epochs: 100
   learning_rate: 0.0001

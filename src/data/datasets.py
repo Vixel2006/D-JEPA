@@ -31,7 +31,7 @@ _TEXT_COLUMNS = (
     "synopsis",
     "premise",
 )
-_LABEL_COLUMNS = ("label", "labels", "sentiment", "sarcasm", "humor", "target")
+_LABEL_COLUMNS = ("label", "labels", "genre", "genres", "sentiment", "sarcasm", "humor", "target")
 _ID_COLUMNS = ("image_id", "video_id", "id", "clip_id", "movie_id")
 
 
