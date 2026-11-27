@@ -10,7 +10,7 @@ import wandb
 from ..data.datasets import make_dataset_pair
 from ..utils.evaluate import evaluate_representation
 from ..utils.evaluation import encode_vision
-from ..utils.downstream import evaluate_downstream
+from .eval import evaluate_dataset
 from .loss import alignment_loss, independence_loss, jepa_loss
 from .models import BertEncoder, Projector, SIGReg, ViTEncoder
 
@@ -137,10 +137,7 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
                 c_vision, u_vision
             ) + independence_loss(c_text, u_text)
             loss_sigreg = (
-                sigreg(c_vision)
-                + sigreg(c_text)
-                + sigreg(z_vision)
-                + sigreg(z_text)
+                sigreg(c_vision) + sigreg(c_text) + sigreg(z_vision) + sigreg(z_text)
             )
             loss = (
                 loss_jepa
@@ -183,15 +180,25 @@ def train(cfg: DictConfig, *, output_dir=".", run_name=None):
         output_dir=output_dir,
         wandb_run=run,
     )
-    evaluate_downstream(
-        train_eval_loader, validation_loader,
-        dataset=cfg.data.get("dataset", "synthetic"),
-        vision_encoder=vision_encoder, text_encoder=text_encoder,
-        device=device, image_size=cfg.model.image_size,
-        epochs=cfg.training.get("downstream_epochs", 20),
-        learning_rate=cfg.training.get("downstream_learning_rate", 1e-3),
-        wandb_run=run,
-    )
+    evaluation_cfg = cfg.get("evaluation", {})
+    if evaluation_cfg.get("enabled", True):
+        evaluate_dataset(
+            cfg.data.get("dataset", "synthetic"),
+            train_eval_loader,
+            validation_loader,
+            vision_encoder=vision_encoder,
+            text_encoder=text_encoder,
+            vision_projector=vision_projector,
+            text_projector=text_projector,
+            device=device,
+            image_size=cfg.model.image_size,
+            epochs=evaluation_cfg.get("epochs", 20),
+            learning_rate=evaluation_cfg.get("learning_rate", 1e-3),
+            hidden_dim=evaluation_cfg.get("hidden_dim", 256),
+            batch_size=evaluation_cfg.get("batch_size", 256),
+            temperature=evaluation_cfg.get("temperature", 0.07),
+            wandb_run=run,
+        )
 
     checkpoint = {
         "vision_encoder": vision_encoder.state_dict(),

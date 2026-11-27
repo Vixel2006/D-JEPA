@@ -5,8 +5,28 @@ import numpy as np
 import seaborn as sns
 
 
-def plot_factor_probes(scores, path, metric="r2"):
+def plot_factor_probes(scores, path, metric=None):
     """Plot factor-probe scores as a representation-by-factor heatmap."""
+    if metric is None:
+        metric = next(
+            (
+                candidate
+                for candidate in ("r2", "accuracy")
+                if any(
+                    name.startswith("probe/") and name.endswith(f"_{candidate}")
+                    for name in scores
+                )
+            ),
+            None,
+        )
+
+    if metric is None:
+        fig, ax = plt.subplots(figsize=(8, 4), layout="constrained")
+        ax.axis("off")
+        ax.text(0.5, 0.5, "No factor probe scores available", ha="center", va="center")
+        _save(fig, path)
+        return False
+
     rows = {}
     for name, value in scores.items():
         if not name.startswith("probe/") or not name.endswith(f"_{metric}"):
@@ -16,7 +36,11 @@ def plot_factor_probes(scores, path, metric="r2"):
         rows.setdefault(representation, {})[factor] = value
 
     if not rows:
-        raise ValueError(f"No probe scores found for metric {metric!r}.")
+        fig, ax = plt.subplots(figsize=(8, 4), layout="constrained")
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"No {metric.upper()} probe scores available", ha="center", va="center")
+        _save(fig, path)
+        return False
 
     representations = list(rows)
     factors = list(dict.fromkeys(factor for row in rows.values() for factor in row))
@@ -43,6 +67,7 @@ def plot_factor_probes(scores, path, metric="r2"):
     ax.set_ylabel("Representation")
     ax.set_title(f"Linear probe {metric.upper()}")
     _save(fig, path)
+    return True
 
 
 def plot_pid_atoms(pid_results, path):

@@ -29,3 +29,11 @@ loss:
   alignment: 1.0
   independence: 1.0
   sigreg: 0.05
+
+evaluation:
+  enabled: true
+  epochs: 20
+  learning_rate: 0.001
+  hidden_dim: 256
+  batch_size: 256
+  temperature: 0.07
